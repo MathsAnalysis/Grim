@@ -23,6 +23,7 @@ import ac.grim.grimac.checks.impl.groundspoof.NoFall;
 import ac.grim.grimac.checks.impl.misc.AutoTool;
 import ac.grim.grimac.checks.impl.misc.ClientBrand;
 import ac.grim.grimac.checks.impl.misc.GhostBlockMitigation;
+import ac.grim.grimac.checks.impl.misc.KeepAliveOrder;
 import ac.grim.grimac.checks.impl.misc.Post;
 import ac.grim.grimac.checks.impl.misc.TransactionOrder;
 import ac.grim.grimac.checks.impl.movement.*;
@@ -172,7 +173,7 @@ public class CheckManager implements BasicReloadable {
                 .put(BadPacketsE.class, new BadPacketsE(player))
                 .put(BadPacketsJ.class, new BadPacketsJ(player))
                 .put(BadPacketsL.class, new BadPacketsL(player))
-                .put(BadPacketsO.class, new BadPacketsO(player))
+                .put(KeepAliveOrder.class, new KeepAliveOrder(player))
                 .put(BadPacketsP.class, new BadPacketsP(player))
                 .put(BadPacketsR.class, new BadPacketsR(player))
                 .put(InvalidInteractCursor.class, new InvalidInteractCursor(player))
