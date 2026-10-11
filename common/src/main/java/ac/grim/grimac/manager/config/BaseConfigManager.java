@@ -43,6 +43,8 @@ public class BaseConfigManager {
     @Getter
     private boolean disablePongCancelling;
     @Getter
+    private boolean experimentalChunkSharing;
+    @Getter
     private int updatePermissionTicks = -1;
 
     // initialize the config
@@ -80,6 +82,7 @@ public class BaseConfigManager {
         disconnectBlacklistedForge = config.getStringElse("disconnect.blacklisted-forge",
                 "<red>Your forge version is blacklisted due to inbuilt reach hacks.<newline><gold>Versions affected: 1.18.2-1.19.3<newline><newline><red>Please see https://github.com/MinecraftForge/MinecraftForge/issues/9309.");
         disablePongCancelling = config.getBooleanElse("disable-pong-cancelling", false);
+        experimentalChunkSharing = config.getBooleanElse("experimental-chunk-sharing", false);
         int configuredUpdatePermissionTicks = config.getIntElse("update-permission-ticks", -1);
         updatePermissionTicks = configuredUpdatePermissionTicks <= 0 ? -1 : configuredUpdatePermissionTicks;
     }
