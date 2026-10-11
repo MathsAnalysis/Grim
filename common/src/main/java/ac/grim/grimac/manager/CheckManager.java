@@ -116,6 +116,7 @@ public class CheckManager implements BasicReloadable {
         // TODO: migrate the rest of these to pre-via
                 .put(PacketOrderProcessor.class, player.packetOrderProcessor)
                 .put(Reach.class, new Reach(player))
+                .put(KillAura.class, new KillAura(player))
                 .put(PacketEntityReplication.class, player.packetEntityReplication)
                 .put(PacketChangeGameState.class, new PacketChangeGameState(player))
                 .put(CompensatedInventory.class, player.inventory)
