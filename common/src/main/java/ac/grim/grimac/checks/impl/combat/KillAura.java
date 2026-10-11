@@ -34,10 +34,12 @@ import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 @CheckData(name = "KillAura", stableKey = "grim.combat.killaura", description = "Attacked through blocks, with a container open, or with aim locked on the target", experimental = true)
 public class KillAura extends Check implements PacketReceiveListener {
+
     private static final Verbose V_WALL = Verbose.of("type=wall, block={f64:%.3f}, entity={entity}");
     private static final Verbose V_INVENTORY = Verbose.of("type=inventory, entity={entity}");
     private static final Verbose V_AIM = Verbose.of("type=aim, locked={uint}/{uint}, error={f64:%.4f}");
@@ -250,9 +252,7 @@ public class KillAura extends Check implements PacketReceiveListener {
     }
 
     private void resetAimSamples() {
-        for (int i = 0; i < AIM_SAMPLES; i++) {
-            aimSamples[i] = false;
-        }
+        Arrays.fill(aimSamples, false);
         aimIndex = 0;
         aimFilled = 0;
         aimLocked = 0;
@@ -305,9 +305,7 @@ public class KillAura extends Check implements PacketReceiveListener {
         }
 
         ItemAttackRange range = player.inventory.getHeldItem().getComponentOr(ComponentTypes.ATTACK_RANGE, null);
-        if (range != null) {
-            margin += Math.max(0, range.getHitboxMargin());
-        }
+        margin += Math.max(0, range.getHitboxMargin());
 
         return margin;
     }
