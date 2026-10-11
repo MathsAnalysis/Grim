@@ -258,7 +258,7 @@ public class CompensatedWorld implements PacketWorld {
         return false;
     }
 
-    private static BaseChunk create() {
+    public static BaseChunk create() {
         if (PacketEvents.getAPI().getServerManager().getVersion().isNewerThanOrEquals(ServerVersion.V_1_18)) {
             return new Chunk_v1_18();
         } else if (PacketEvents.getAPI().getServerManager().getVersion().isNewerThanOrEquals(ServerVersion.V_1_16)) {
@@ -304,7 +304,6 @@ public class CompensatedWorld implements PacketWorld {
             if (chunk == null) {
                 chunk = create();
                 column.chunks()[sectionIndex] = chunk;
-                column.sectionKeys()[sectionIndex] = 0L;
 
                 // Sets entire chunk to air
                 // This glitch/feature occurs due to the palette size being 0 when we first create a chunk section

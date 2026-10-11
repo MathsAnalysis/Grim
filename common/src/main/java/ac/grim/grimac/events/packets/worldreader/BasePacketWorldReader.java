@@ -130,7 +130,7 @@ public class BasePacketWorldReader extends PacketListenerAbstract {
             event.getTasksAfterSend().add(player::sendTransaction); // Player is in this unloaded chunk
         }
         if (isGroundUp) {
-            Column column = new Column(chunkX, chunkZ, chunks, new long[chunks.length], player.lastTransactionSent.get());
+            Column column = new Column(chunkX, chunkZ, chunks, null, player.lastTransactionSent.get());
             player.compensatedWorld.addToCache(column, chunkX, chunkZ, tileEntities);
         } else {
             player.latencyUtils.addRealTimeTask(player.lastTransactionSent.get(), () -> {
