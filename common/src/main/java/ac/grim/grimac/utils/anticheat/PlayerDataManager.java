@@ -103,7 +103,12 @@ public class PlayerDataManager {
 
     public GrimPlayer remove(final @NotNull User user) {
         GrimPlayer removed = playerDataMap.remove(user);
-        if (removed != null) ChunkSectionCache.releaseSharedSections(removed.compensatedWorld);
+        if (removed != null) {
+            removed.runSafely(() -> {
+                ChunkSectionCache.releaseSharedSections(removed.compensatedWorld);
+                removed.compensatedWorld.chunks.clear();
+            });
+        }
         return removed;
     }
 
