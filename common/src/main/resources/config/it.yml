@@ -179,7 +179,6 @@ debug-pipeline-on-join: false
 experimental-checks: false
 
 # Condivide le sezioni dei chunk identiche tra i giocatori per risparmiare memoria (copia in scrittura).
-# Sperimentale: abilita solo dopo la verifica con /grim chunkmemory sul tuo server.
 experimental-chunk-sharing: false
 
 reset-item-usage-on-item-update: true
@@ -224,4 +223,4 @@ max-ping-firework-boost: 1000
 update-permission-ticks: -1
 
 config-flavor: V2
-config-version: 11
+config-version: 12
