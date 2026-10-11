@@ -53,6 +53,7 @@ public class CompensatedInventory extends GrimProcessor implements PacketReceive
     public boolean needResend = false;
     public int stateID = 0; // Don't mess up the last sent state ID by changing it
     private int openWindowID = 0;
+    private int openWindowTransaction = 0;
     // Special values:
     // Player inventory is -1
     // Unsupported inventory is -2
@@ -331,8 +332,10 @@ public class CompensatedInventory extends GrimProcessor implements PacketReceive
 
             // There doesn't seem to be a check against using 0 as the window ID - let's consider that an invalid packet
             // It will probably mess up a TON of logic both client and server sided, so don't do that!
-            player.latencyUtils.addRealTimeTask(player.lastTransactionSent.get(), () -> {
+            int transaction = player.lastTransactionSent.get();
+            player.latencyUtils.addRealTimeTask(transaction, () -> {
                 openWindowID = open.getContainerId();
+                openWindowTransaction = transaction;
                 menu = newMenu;
                 isPacketInventoryActive = !(newMenu instanceof NotImplementedMenu);
                 needResend = newMenu instanceof NotImplementedMenu;
@@ -344,10 +347,12 @@ public class CompensatedInventory extends GrimProcessor implements PacketReceive
             WrapperPlayServerOpenHorseWindow open = new WrapperPlayServerOpenHorseWindow(event);
 
             packetSendingInventorySize = UNSUPPORTED_INVENTORY_CASE;
-            player.latencyUtils.addRealTimeTask(player.lastTransactionSent.get(), () -> {
+            int transaction = player.lastTransactionSent.get();
+            player.latencyUtils.addRealTimeTask(transaction, () -> {
                 isPacketInventoryActive = false;
                 needResend = true;
                 openWindowID = open.getWindowId();
+                openWindowTransaction = transaction;
             });
         }
 
@@ -471,6 +476,10 @@ public class CompensatedInventory extends GrimProcessor implements PacketReceive
                 }
             });
         }
+    }
+
+    public boolean isContainerOpenConfirmed() {
+        return openWindowID != 0 && player.lastTransactionReceived.get() > openWindowTransaction;
     }
 
     /**
