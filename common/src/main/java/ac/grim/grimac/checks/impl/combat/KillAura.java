@@ -305,7 +305,9 @@ public class KillAura extends Check implements PacketReceiveListener {
         }
 
         ItemAttackRange range = player.inventory.getHeldItem().getComponentOr(ComponentTypes.ATTACK_RANGE, null);
-        margin += Math.max(0, range.getHitboxMargin());
+        if (range != null) {
+            margin += Math.max(0, range.getHitboxMargin());
+        }
 
         return margin;
     }
