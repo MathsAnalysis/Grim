@@ -198,6 +198,9 @@ experimental-checks: false
 # Partage les sections de chunks identiques entre les joueurs pour économiser la mémoire (copie à l'écriture).
 experimental-chunk-sharing: false
 
+# Hides players behind opaque blocks from each viewer (experimental).
+experimental-entity-hiding: false
+
 reset-item-usage-on-item-update: true
 reset-item-usage-on-attack: true
 reset-item-usage-on-slot-change: true
@@ -240,4 +243,4 @@ max-ping-firework-boost: 1000
 update-permission-ticks: -1
 
 config-flavor: V2
-config-version: 12
+config-version: 13

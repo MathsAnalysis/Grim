@@ -202,6 +202,9 @@ experimental-checks: false
 # Shares identical chunk sections between players to save memory (copy-on-write on edit).
 experimental-chunk-sharing: false
 
+# Hides players behind opaque blocks from each viewer (experimental).
+experimental-entity-hiding: false
+
 reset-item-usage-on-item-update: true
 reset-item-usage-on-attack: true
 reset-item-usage-on-slot-change: true
@@ -239,4 +242,4 @@ update-permission-ticks: -1
 #   config-version: bumped on every breaking shape change. Old configs
 #                   auto-migrate up via the bundled updater on next start.
 config-flavor: V2
-config-version: 12
+config-version: 13

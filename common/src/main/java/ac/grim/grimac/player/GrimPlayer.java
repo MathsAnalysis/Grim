@@ -122,6 +122,7 @@ public class GrimPlayer implements GrimUser {
     // End transaction handling stuff
     // Manager like classes
     public final @NotNull CheckManager checkManager;
+    public final @NotNull EntityVisibility entityVisibility;
     public final @NotNull AttackCooldownHandler attackCooldown;
     public final @NotNull PunishmentManager punishmentManager;
     public final @NotNull MovementCheckRunner movementCheckRunner;
@@ -296,6 +297,7 @@ public class GrimPlayer implements GrimUser {
         this.compensatedWorld = new CompensatedWorld(this);
         this.compensatedGeysers = new CompensatedGeysers();
         this.compensatedEntities = new CompensatedEntities(this);
+        this.entityVisibility = new EntityVisibility(this);
         this.dashableEntities = new CompensatedDashableEntities();
         this.cameraEntity = new CompensatedCameraEntity(this);
 

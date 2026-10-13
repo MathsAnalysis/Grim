@@ -222,6 +222,9 @@ experimental-checks: false
 # 在玩家之间共享相同的区块分区以节省内存（写入时复制）。
 experimental-chunk-sharing: false
 
+# Hides players behind opaque blocks from each viewer (experimental).
+experimental-entity-hiding: false
+
 # 取消有问题的格挡
 reset-item-usage-on-item-update: true
 reset-item-usage-on-attack: true
@@ -259,4 +262,4 @@ max-ping-firework-boost: 1000
 update-permission-ticks: -1
 
 config-flavor: V2
-config-version: 12
+config-version: 13
