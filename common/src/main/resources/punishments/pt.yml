@@ -123,6 +123,7 @@ Punishments:
     remove-violations-after: 300
     checks:
       - "Blink"
+      - "GhostHand"
     commands:
       - "1:1 [alert]"
       - "1:1 [log]"

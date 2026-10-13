@@ -234,6 +234,7 @@ public class CheckManager implements BasicReloadable {
                 .put(AirLiquidBreak.class, new AirLiquidBreak(player))
                 .put(WrongBreak.class, new WrongBreak(player))
                 .put(RotationBreak.class, new RotationBreak(player))
+                .put(GhostHand.class, new GhostHand(player))
                 .put(FastBreak.class, new FastBreak(player))
                 .put(MultiBreak.class, new MultiBreak(player))
                 .put(NoSwingBreak.class, new NoSwingBreak(player))
