@@ -117,6 +117,7 @@ public class CheckManager implements BasicReloadable {
                 .put(PacketOrderProcessor.class, player.packetOrderProcessor)
                 .put(Reach.class, new Reach(player))
                 .put(KillAura.class, new KillAura(player))
+                .put(AutoTotem.class, new AutoTotem(player))
                 .put(PacketEntityReplication.class, player.packetEntityReplication)
                 .put(PacketChangeGameState.class, new PacketChangeGameState(player))
                 .put(CompensatedInventory.class, player.inventory)
