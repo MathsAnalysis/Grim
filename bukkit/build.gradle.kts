@@ -262,7 +262,7 @@ tasks {
 
     runServer {
         minecraftVersion(version)
-        runDirectory = projectDir.resolve("run/$version")
+        runDirectory = projectDir.resolve("run")
 
         val javaToolchains = project.extensions.getByType<JavaToolchainService>()
         javaLauncher = javaToolchains.launcherFor {
