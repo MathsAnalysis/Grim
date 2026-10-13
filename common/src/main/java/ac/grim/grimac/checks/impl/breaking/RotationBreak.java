@@ -62,11 +62,11 @@ public class RotationBreak extends Check implements BlockBreakListener, PostFlyi
         if (didRayTraceHit(blockBreak)) {
             flagBuffer = Math.max(0, flagBuffer - 0.1);
         } else {
-            flagBuffer = 1;
-            if (!ignorePost) { // Don't flag twice
+            if (flagBuffer > 0 && !ignorePost) { // Don't flag twice
                 flag(V.write(verbose()).bool(false)
                         .uint(VerboseCodecs.enumId(blockBreak.action)));
             }
+            flagBuffer = 1;
         }
 
         if (ignorePost) {
@@ -95,6 +95,8 @@ public class RotationBreak extends Check implements BlockBreakListener, PostFlyi
             return true;
         }
         // End checking if the player is in the block
+
+        box.expand(player.getMovementThreshold());
 
         List<Vector3f> possibleLookDirs = new ArrayList<>(Arrays.asList(
                 new Vector3f(player.lastYaw, player.pitch, 0),
