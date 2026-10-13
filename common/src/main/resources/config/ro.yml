@@ -149,7 +149,7 @@ TimerLimit:
     # Ping la care check-ul începe să limiteze balanța timer, pentru a preveni abuzul.
     # Poate cauza setback pentru jucători legitimi doar dacă sunt peste acest prag de ping.
     # -1 pentru a dezactiva
-    ping-abuse-limit-threshold: 1000
+    ping-abuse-limit-threshold: 5000
 
 NegativeTimer:
     # Număr de milisecunde pierdute în timp ce se mișcă înainte de a începe să marcheze
@@ -197,13 +197,13 @@ exploit:
 debug-pipeline-on-join: false
 
 # Activează verificări experimentale
-experimental-checks: false
+experimental-checks: true
 
 # Partajează secțiunile identice de chunk între jucători pentru a economisi memorie (copiere la scriere).
-experimental-chunk-sharing: false
+experimental-chunk-sharing: true
 
 # Hides players behind opaque blocks from each viewer (experimental).
-experimental-entity-hiding: false
+experimental-entity-hiding: true
 
 reset-item-usage-on-item-update: true
 reset-item-usage-on-attack: true

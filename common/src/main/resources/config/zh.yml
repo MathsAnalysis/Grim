@@ -170,7 +170,7 @@ TimerLimit:
     # 在检查玩家的延迟时对timer balance进行限制, 防止滥用
     # 在合法玩家的延迟超过这个延迟阈值时可能会造成误拉回
     # 填写-1则关闭
-    ping-abuse-limit-threshold: 1000
+    ping-abuse-limit-threshold: 5000
 
 NegativeTimer:
     # 玩家的移动丢失了多少毫秒？
@@ -217,13 +217,13 @@ exploit:
 debug-pipeline-on-join: false
 
 # 启用实验性检查
-experimental-checks: false
+experimental-checks: true
 
 # 在玩家之间共享相同的区块分区以节省内存（写入时复制）。
-experimental-chunk-sharing: false
+experimental-chunk-sharing: true
 
 # Hides players behind opaque blocks from each viewer (experimental).
-experimental-entity-hiding: false
+experimental-entity-hiding: true
 
 # 取消有问题的格挡
 reset-item-usage-on-item-update: true

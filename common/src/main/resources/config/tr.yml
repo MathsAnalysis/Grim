@@ -149,7 +149,7 @@ TimerLimit:
     # Kontrolün zamanlayıcı dengesini sınırlamaya başlayacağı ping değeri, kötüye kullanımı önlemek için.
     # Bu, yalnızca bu ping eşiğini aşan meşru oyuncular için bazı geri dönüşlere neden olabilir.
     # Devre dışı bırakmak için -1 yazın
-    ping-abuse-limit-threshold: 1000
+    ping-abuse-limit-threshold: 5000
 
 NegativeTimer:
     # Uyarı vermeye başlamadan önce hareket halindeyken kaybedilen milisaniye sayısı
@@ -197,13 +197,13 @@ exploit:
 debug-pipeline-on-join: false
 
 # Deneysel kontrolleri etkinleştir
-experimental-checks: false
+experimental-checks: true
 
 # Bellek tasarrufu için aynı chunk bölümlerini oyuncular arasında paylaşır (yazma sırasında kopyalama).
-experimental-chunk-sharing: false
+experimental-chunk-sharing: true
 
 # Hides players behind opaque blocks from each viewer (experimental).
-experimental-entity-hiding: false
+experimental-entity-hiding: true
 
 reset-item-usage-on-item-update: true
 reset-item-usage-on-attack: true

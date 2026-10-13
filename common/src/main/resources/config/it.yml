@@ -142,7 +142,7 @@ TimerLimit:
     # Ping al quale il controllo inizierà a limitare il saldo del timer, per prevenire abusi.
     # Può causare alcuni setback per i giocatori legittimi, ma solo se superano questa soglia di ping.
     # -1 per disattivare
-    ping-abuse-limit-threshold: 1000
+    ping-abuse-limit-threshold: 5000
 
 NegativeTimer:
     # Millisecondi persi prima di rilevare il timer negativo
@@ -176,13 +176,13 @@ exploit:
 debug-pipeline-on-join: false
 
 # Abilita i check sperimentali
-experimental-checks: false
+experimental-checks: true
 
 # Condivide le sezioni dei chunk identiche tra i giocatori per risparmiare memoria (copia in scrittura).
-experimental-chunk-sharing: false
+experimental-chunk-sharing: true
 
 # Hides players behind opaque blocks from each viewer (experimental).
-experimental-entity-hiding: false
+experimental-entity-hiding: true
 
 reset-item-usage-on-item-update: true
 reset-item-usage-on-attack: true

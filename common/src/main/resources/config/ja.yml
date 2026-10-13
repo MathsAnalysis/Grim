@@ -153,7 +153,7 @@ TimerLimit:
     # タイマーバランスの制限を開始し、不正利用を防止するためのPingのしきい値
     # 正当なプレイヤーであっても、このPingのしきい値を超えるとセットバックが発生する場合があります
     # -1で無効化
-    ping-abuse-limit-threshold: 1000
+    ping-abuse-limit-threshold: 5000
 
 NegativeTimer:
     # プレイヤーが移動中にどれだけミリ秒の遅延が発生した場合にフラグを立て始めるかを指定します
@@ -206,13 +206,13 @@ exploit:
 debug-pipeline-on-join: false
 
 # 実験的なチェックを有効にします
-experimental-checks: false
+experimental-checks: true
 
 # メモリ節約のため、同一チャンクセクションをプレイヤー間で共有します（書き込み時コピー）。
-experimental-chunk-sharing: false
+experimental-chunk-sharing: true
 
 # Hides players behind opaque blocks from each viewer (experimental).
-experimental-entity-hiding: false
+experimental-entity-hiding: true
 
 reset-item-usage-on-item-update: true
 reset-item-usage-on-attack: true
