@@ -105,3 +105,10 @@ Punishments:
     commands:
       - "20:40 [alert]"
       - "1:1 [log]"
+  Experimental:
+    remove-violations-after: 300
+    checks:
+      - "Blink"
+    commands:
+      - "1:1 [alert]"
+      - "1:1 [log]"

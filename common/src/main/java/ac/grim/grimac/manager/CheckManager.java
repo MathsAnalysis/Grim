@@ -224,6 +224,8 @@ public class CheckManager implements BasicReloadable {
 
                 .put(Timer.class, new Timer(player))
                 .put(TickTimer.class, new TickTimer(player))
+                .put(BlinkA.class, new BlinkA(player))
+                .put(BlinkB.class, new BlinkB(player))
                 .put(TimerLimit.class, new TimerLimit(player))
                 .put(CrashA.class, new CrashA(player))
                 .put(CrashC.class, new CrashC(player))
