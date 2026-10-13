@@ -24,10 +24,7 @@ import ac.grim.grimac.checks.impl.misc.ClientBrand;
 import ac.grim.grimac.checks.impl.misc.GhostBlockMitigation;
 import ac.grim.grimac.checks.impl.misc.Post;
 import ac.grim.grimac.checks.impl.misc.TransactionOrder;
-import ac.grim.grimac.checks.impl.movement.NoSlow;
-import ac.grim.grimac.checks.impl.movement.PredictionRunner;
-import ac.grim.grimac.checks.impl.movement.SetbackBlocker;
-import ac.grim.grimac.checks.impl.movement.VehiclePredictionRunner;
+import ac.grim.grimac.checks.impl.movement.*;
 import ac.grim.grimac.checks.impl.multiactions.*;
 import ac.grim.grimac.checks.impl.packetorder.*;
 import ac.grim.grimac.checks.impl.prediction.DebugHandler;
@@ -118,6 +115,7 @@ public class CheckManager implements BasicReloadable {
                 .put(Reach.class, new Reach(player))
                 .put(KillAura.class, new KillAura(player))
                 .put(AutoTotem.class, new AutoTotem(player))
+                .put(AntiESP.class, new AntiESP(player))
                 .put(PacketEntityReplication.class, player.packetEntityReplication)
                 .put(PacketChangeGameState.class, new PacketChangeGameState(player))
                 .put(CompensatedInventory.class, player.inventory)

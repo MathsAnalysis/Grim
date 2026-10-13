@@ -59,6 +59,7 @@ public class PacketEntity extends TypedPacketEntity {
     public boolean isDead = false;
     public boolean isBaby = false;
     public boolean hasGravity = true;
+    public boolean glowing = false;
     private final GrimPlayer player;
     private EntityInterpolation interpolation;
     private Object2IntMap<PotionType> potionsMap = null;

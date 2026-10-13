@@ -248,6 +248,11 @@ public class CompensatedEntities {
         PacketEntity entity = player.compensatedEntities.getEntity(entityID);
         if (entity == null) return;
 
+        EntityData<?> sharedFlags = WatchableIndexUtil.getIndex(watchableObjects, 0);
+        if (sharedFlags != null && sharedFlags.getValue() instanceof Byte flags && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_14)) {
+            entity.glowing = (flags & 0x40) == 0x40;
+        }
+
         // 26.1 added AGE_LOCKED to AgeableMob after BABY, shifting all descendant field indices +1.
         // Only affects entities extending AgeableMob (horses, pigs, striders, tamables, etc.)
         final int ageableOffset = PacketEvents.getAPI().getServerManager().getVersion()
