@@ -67,10 +67,10 @@ public class RotationPlace extends BlockPlaceCheck implements BlockPlaceListener
         boolean hit = didRayTraceHit(place);
         // This can false with rapidly moving yaw in 1.8+ clients
         if (!hit) {
-            flagBuffer = 1;
-            if (!ignorePost) { // Don't flag twice
+            if (flagBuffer > 0 && !ignorePost) { // Don't flag twice
                 flag(V.write(verbose()).bool(false));
             }
+            flagBuffer = 1;
         } else {
             flagBuffer = Math.max(0, flagBuffer - 0.1);
         }
@@ -106,6 +106,8 @@ public class RotationPlace extends BlockPlaceCheck implements BlockPlaceListener
             return true;
         }
         // End checking if the player is in the block
+
+        box.expand(player.getMovementThreshold());
 
         // 1.9+ players could be a tick behind because we don't get skipped ticks
         if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_9)) {
