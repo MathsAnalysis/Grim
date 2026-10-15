@@ -64,6 +64,7 @@ public class RotationBreak extends Check implements PostFlyingBlockBreakListener
             flagBuffer += 1.0;
             if (flagBuffer >= 3.0) {
                 if (flag(V.write(verbose())
+                        .bool(true)
                         .uint(VerboseCodecs.enumId(blockBreak.action))) && shouldModifyPackets()) {
                     player.resyncPosition(blockBreak.position, blockBreak.sequence);
                     player.onPacketCancel();
