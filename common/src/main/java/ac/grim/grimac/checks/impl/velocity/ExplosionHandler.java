@@ -218,6 +218,9 @@ public class ExplosionHandler extends Check implements PacketSendListener, PostP
     }
 
     public VelocityData getPossibleExplosions(int lastTransaction, boolean isJustTesting) {
+        if (firstBreadMap.isEmpty() && lastExplosionsKnownTaken == null) {
+            return null;
+        }
         handleTransactionPacket(lastTransaction);
         if (lastExplosionsKnownTaken == null)
             return null;
@@ -256,6 +259,9 @@ public class ExplosionHandler extends Check implements PacketSendListener, PostP
     }
 
     public VelocityData getFirstBreadAddedExplosion(int lastTransaction) {
+        if (firstBreadMap.isEmpty() && lastExplosionsKnownTaken == null && firstBreadAddedExplosion == null) {
+            return null;
+        }
         handleTransactionPacket(lastTransaction);
         return firstBreadAddedExplosion;
     }

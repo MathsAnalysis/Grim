@@ -26,6 +26,15 @@ public class BadPacketsM extends Check implements PreViaPacketReceiveListener, P
     private int exempt;
     private boolean menu;
 
+    private static final com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon[] HANDLED_RECEIVE_PACKETS = new com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon[]{
+            PacketType.Play.Client.CLIENT_STATUS
+    };
+
+    @Override
+    public com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon[] getHandledPacketTypes() {
+        return HANDLED_RECEIVE_PACKETS;
+    }
+
     @Override
     public void onPreViaPacketReceive(PacketReceiveEvent event) {
         if (event.getPacketType() != PacketType.Play.Client.CLIENT_STATUS

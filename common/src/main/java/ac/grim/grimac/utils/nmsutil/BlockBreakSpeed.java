@@ -83,7 +83,7 @@ public class BlockBreakSpeed {
         ItemType toolType = tool.getType();
 
         if (player.gamemode == GameMode.CREATIVE) {
-            if (SERVER_USES_COMPONENTS_AND_RULES && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_5)) {
+            if ((SERVER_USES_COMPONENTS_AND_RULES || tool.hasComponent(ComponentTypes.TOOL)) && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_5)) {
                 return tool.getComponent(ComponentTypes.TOOL)
                         .map(ItemTool::isCanDestroyBlocksInCreative)
                         .orElse(true) ? 1 : 0;
@@ -107,7 +107,8 @@ public class BlockBreakSpeed {
         if (blockHardness == -1) return 0; // Unbreakable block
 
         final ToolSpeedData toolSpeedData;
-        if (SERVER_USES_COMPONENTS_AND_RULES && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_20_5)) {
+        if (tool.hasComponent(ComponentTypes.TOOL)
+                || player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_20_5)) {
             toolSpeedData = getModernToolSpeedData(player, tool, block);
         } else {
             toolSpeedData = getLegacyToolSpeedData(player, tool, block);
@@ -130,14 +131,18 @@ public class BlockBreakSpeed {
         float speedMultiplier = data.speedMultiplier;
 
         if (speedMultiplier > 1.0f) {
+            float efficiencyBonus = 0;
             if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21) && PacketEvents.getAPI().getServerManager().getVersion().isNewerThanOrEquals(ServerVersion.V_1_21)) {
-                speedMultiplier += (float) player.compensatedEntities.self.getAttributeValue(Attributes.MINING_EFFICIENCY);
-            } else {
-                int digSpeed = tool.getEnchantmentLevel(EnchantmentTypes.BLOCK_EFFICIENCY);
-                if (digSpeed > 0) {
-                    speedMultiplier += digSpeed * digSpeed + 1;
-                }
+                efficiencyBonus = (float) player.compensatedEntities.self.getAttributeValue(Attributes.MINING_EFFICIENCY);
             }
+            int digSpeed = tool.getEnchantmentLevel(EnchantmentTypes.BLOCK_EFFICIENCY);
+            if (digSpeed <= 0) {
+                digSpeed = tool.getEnchantmentLevel(EnchantmentTypes.BLOCK_EFFICIENCY, player.getClientVersion());
+            }
+            if (digSpeed > 0) {
+                efficiencyBonus = Math.max(efficiencyBonus, digSpeed * digSpeed + 1);
+            }
+            speedMultiplier += efficiencyBonus;
         }
 
         OptionalInt digSpeed = player.compensatedEntities.getPotionLevelForSelfPlayer(PotionTypes.HASTE);
@@ -187,9 +192,7 @@ public class BlockBreakSpeed {
         return speedMultiplier;
     }
 
-    // TODO technically its possible to use packet level manipulation to enforce Tool rules on newer clients on older servers
-    // But I've yet to hear of anyone even trying to do such a thing rather than just update the server
-    // And we can't support this because we don't see the tool components/data before Via
+    // Evaluates modern tool rules for clients >= 1.20.5 or when custom tool component is present
     private static ToolSpeedData getModernToolSpeedData(GrimPlayer player, ItemStack tool, StateType block) {
         Optional<ItemTool> toolComponentOpt = tool.getComponent(ComponentTypes.TOOL);
         float speedMultiplier = 1.0f;
@@ -212,8 +215,9 @@ public class BlockBreakSpeed {
                 // First, determine if the current rule even applies to this block.
                 if (tagKey != null) {
                     SyncedTag<StateType> playerTag = player.tagManager.block(tagKey);
+                    BlockTags defaultTag = BlockTags.getByName(tagKey.getKey());
                     isMatch = (playerTag != null && playerTag.contains(block))
-                            || BlockTags.getByName(tagKey.getKey()).contains(block);
+                            || (defaultTag != null && defaultTag.contains(block));
                 } else {
                     isMatch = predicate.getEntities().contains(block.getMapped());
                 }
@@ -237,8 +241,9 @@ public class BlockBreakSpeed {
                     break;
                 }
             }
+            return new ToolSpeedData(speedMultiplier, isCorrectToolForDrop);
         }
-        return new ToolSpeedData(speedMultiplier, isCorrectToolForDrop);
+        return getLegacyToolSpeedData(player, tool, block);
     }
 
     private static ToolSpeedData getLegacyToolSpeedData(GrimPlayer player, ItemStack tool, StateType block) {
@@ -247,13 +252,17 @@ public class BlockBreakSpeed {
         boolean isCorrectToolForDrop = false;
         // 1.13 and below need their own huge methods to support this...
         if (toolType.hasAttribute(ItemTypes.ItemAttribute.AXE)) {
-            isCorrectToolForDrop = player.tagManager.block(SyncedTags.MINEABLE_AXE).contains(block);
+            SyncedTag<StateType> tag = player.tagManager.block(SyncedTags.MINEABLE_AXE);
+            isCorrectToolForDrop = (tag != null && tag.contains(block)) || BlockTags.MINEABLE_AXE.contains(block);
         } else if (toolType.hasAttribute(ItemTypes.ItemAttribute.PICKAXE)) {
-            isCorrectToolForDrop = player.tagManager.block(SyncedTags.MINEABLE_PICKAXE).contains(block);
+            SyncedTag<StateType> tag = player.tagManager.block(SyncedTags.MINEABLE_PICKAXE);
+            isCorrectToolForDrop = (tag != null && tag.contains(block)) || BlockTags.MINEABLE_PICKAXE.contains(block);
         } else if (toolType.hasAttribute(ItemTypes.ItemAttribute.SHOVEL)) {
-            isCorrectToolForDrop = player.tagManager.block(SyncedTags.MINEABLE_SHOVEL).contains(block);
+            SyncedTag<StateType> tag = player.tagManager.block(SyncedTags.MINEABLE_SHOVEL);
+            isCorrectToolForDrop = (tag != null && tag.contains(block)) || BlockTags.MINEABLE_SHOVEL.contains(block);
         } else if (toolType.hasAttribute(ItemTypes.ItemAttribute.HOE)) {
-            isCorrectToolForDrop = player.tagManager.block(SyncedTags.MINEABLE_HOE).contains(block);
+            SyncedTag<StateType> tag = player.tagManager.block(SyncedTags.MINEABLE_HOE);
+            isCorrectToolForDrop = (tag != null && tag.contains(block)) || BlockTags.MINEABLE_HOE.contains(block);
         }
 
         if (isCorrectToolForDrop) {

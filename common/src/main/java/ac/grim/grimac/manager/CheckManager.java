@@ -62,14 +62,32 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon;
 import java.util.Collections;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class CheckManager implements BasicReloadable {
     private static final AtomicBoolean initedAtomic = new AtomicBoolean(false);
     private static boolean inited;
+
+    private static final PacketReceiveListener[] EMPTY_RECEIVE = new PacketReceiveListener[0];
+    private static final PreViaPacketReceiveListener[] EMPTY_PRE_VIA_RECEIVE = new PreViaPacketReceiveListener[0];
+    private static final PacketSendListener[] EMPTY_SEND = new PacketSendListener[0];
+    private static final PreViaPacketSendListener[] EMPTY_PRE_VIA_SEND = new PreViaPacketSendListener[0];
+
     public final ClassToInstanceMap<AbstractProcessor> processors;
     public final Collection<AbstractCheck> checks;
+
+    private final ExplosionHandler explosionHandler;
+    private final NoFall noFall;
+    private final KnockbackHandler knockbackHandler;
+    private final CompensatedCooldown compensatedCooldown;
+    private final NoSlow noSlow;
+    private final SetbackTeleportUtil setbackUtil;
+    private final DebugHandler debugHandler;
+    private final PacketWorldBorder packetWorldBorder;
 
     private final PreViaPacketReceiveListener[] preViaPacketReceiveListeners;
     private final PreViaPacketSendListener[] preViaPacketSendListeners;
@@ -85,6 +103,11 @@ public class CheckManager implements BasicReloadable {
     private final PostFlyingBlockBreakListener[] postFlyingBlockBreakListeners;
     private final PostPredictionListener[] postPredictionListeners;
 
+    private final Map<PacketTypeCommon, PacketReceiveListener[]> packetReceiveListenersByType = new ConcurrentHashMap<>();
+    private final Map<PacketTypeCommon, PreViaPacketReceiveListener[]> preViaPacketReceiveListenersByType = new ConcurrentHashMap<>();
+    private final Map<PacketTypeCommon, PacketSendListener[]> packetSendListenersByType = new ConcurrentHashMap<>();
+    private final Map<PacketTypeCommon, PreViaPacketSendListener[]> preViaPacketSendListenersByType = new ConcurrentHashMap<>();
+
     public CheckManager(GrimPlayer player) {
         processors = new ImmutableClassToInstanceMap.Builder<AbstractProcessor>()
                 .put(CompensatedCameraEntity.class, player.cameraEntity)
@@ -99,6 +122,9 @@ public class CheckManager implements BasicReloadable {
                 .put(BadPacketsI.class, new BadPacketsI(player))
                 .put(BadPacketsK.class, new BadPacketsK(player))
                 .put(BadPacketsM.class, new BadPacketsM(player))
+                .put(BadPacketsQ.class, new BadPacketsQ(player))
+                .put(BadPacketsS.class, new BadPacketsS(player))
+                .put(BadPacketsU.class, new BadPacketsU(player))
                 .put(BadPacketsY.class, new BadPacketsY(player))
                 .put(BadPacketsZ.class, new BadPacketsZ(player))
                 .put(PacketOrderB.class, new PacketOrderB(player))
@@ -106,11 +132,20 @@ public class CheckManager implements BasicReloadable {
                 .put(PacketOrderD.class, new PacketOrderD(player))
                 .put(SelfInteract.class, new SelfInteract(player))
                 .put(MultiActionsA.class, new MultiActionsA(player))
+                .put(MultiActionsC.class, new MultiActionsC(player))
+                .put(MultiActionsD.class, new MultiActionsD(player))
                 .put(MultiActionsE.class, new MultiActionsE(player))
                 .put(VehicleA.class, new VehicleA(player))
                 .put(VehicleB.class, new VehicleB(player))
+                .put(VehicleD.class, new VehicleD(player))
+                .put(VehicleE.class, new VehicleE(player))
+                .put(CrashB.class, new CrashB(player))
+                .put(CrashE.class, new CrashE(player))
+                .put(CrashF.class, new CrashF(player))
+                .put(CrashH.class, new CrashH(player))
+                .put(CrashI.class, new CrashI(player))
 
-        // TODO: migrate the rest of these to pre-via
+        // Post-Via packet checks and state trackers
                 .put(PacketOrderProcessor.class, player.packetOrderProcessor)
                 .put(Reach.class, new Reach(player))
                 .put(KillAura.class, new KillAura(player))
@@ -133,25 +168,12 @@ public class CheckManager implements BasicReloadable {
                 .put(BadPacketsL.class, new BadPacketsL(player))
                 .put(BadPacketsO.class, new BadPacketsO(player))
                 .put(BadPacketsP.class, new BadPacketsP(player))
-                .put(BadPacketsQ.class, new BadPacketsQ(player))
                 .put(BadPacketsR.class, new BadPacketsR(player))
-                .put(BadPacketsS.class, new BadPacketsS(player))
                 .put(InvalidInteractCursor.class, new InvalidInteractCursor(player))
-                .put(BadPacketsU.class, new BadPacketsU(player))
                 .put(BadPacketsV.class, new BadPacketsV(player))
-                .put(MultiActionsC.class, new MultiActionsC(player))
-                .put(MultiActionsD.class, new MultiActionsD(player))
                 .put(PacketOrderO.class, new PacketOrderO(player))
-//                .put(PacketOrderP.class, new PacketOrderP(player))
-                .put(VehicleD.class, new VehicleD(player))
-                .put(VehicleE.class, new VehicleE(player))
                 .put(VehicleF.class, new VehicleF(player))
-                .put(CrashB.class, new CrashB(player))
                 .put(CrashD.class, new CrashD(player))
-                .put(CrashE.class, new CrashE(player))
-                .put(CrashF.class, new CrashF(player))
-                .put(CrashH.class, new CrashH(player))
-                .put(CrashI.class, new CrashI(player))
                 .put(SetbackBlocker.class, new SetbackBlocker(player)) // Must be last class otherwise we can't check while blocking packets
 
                 .put(PredictionRunner.class, new PredictionRunner(player))
@@ -244,9 +266,7 @@ public class CheckManager implements BasicReloadable {
                 .put(PositionBreakB.class, new PositionBreakB(player))
                 .put(MultiActionsB.class, new MultiActionsB(player))
 
-        // All checks that have no listeners, generally invoked by other code to flag
-        // TODO migrate more checks to here
-                // BadPacketsB/N/W, VehicleC, and TransactionOrder are packet checks with no listener
+        // All checks that have no listeners, generally invoked directly by other code to flag
                 .put(BadPacketsB.class, new BadPacketsB(player))
                 .put(BadPacketsN.class, new BadPacketsN(player))
                 .put(InvalidInteractTarget.class, new InvalidInteractTarget(player))
@@ -307,6 +327,15 @@ public class CheckManager implements BasicReloadable {
         this.blockBreakListeners = blockBreakListeners.toArray(new BlockBreakListener[blockBreakListeners.size()]);
         this.postFlyingBlockBreakListeners = postFlyingBlockBreakListeners.toArray(new PostFlyingBlockBreakListener[postFlyingBlockBreakListeners.size()]);
 
+        this.explosionHandler = (ExplosionHandler) processors.get(ExplosionHandler.class);
+        this.noFall = (NoFall) processors.get(NoFall.class);
+        this.knockbackHandler = (KnockbackHandler) processors.get(KnockbackHandler.class);
+        this.compensatedCooldown = (CompensatedCooldown) processors.get(CompensatedCooldown.class);
+        this.noSlow = (NoSlow) processors.get(NoSlow.class);
+        this.setbackUtil = (SetbackTeleportUtil) processors.get(SetbackTeleportUtil.class);
+        this.debugHandler = (DebugHandler) processors.get(DebugHandler.class);
+        this.packetWorldBorder = (PacketWorldBorder) processors.get(PacketWorldBorder.class);
+
         init();
     }
 
@@ -324,6 +353,11 @@ public class CheckManager implements BasicReloadable {
 
     @Override
     public void reload() {
+        packetReceiveListenersByType.clear();
+        preViaPacketReceiveListenersByType.clear();
+        packetSendListenersByType.clear();
+        preViaPacketSendListenersByType.clear();
+
         for (AbstractProcessor processor : processors.values()) {
             processor.reload();
         }
@@ -340,27 +374,102 @@ public class CheckManager implements BasicReloadable {
     }
 
     public void onPacketReceive(final PacketReceiveEvent packet) {
-        for (PacketReceiveListener check : packetReceiveListeners) {
-            check.onPacketReceive(packet);
+        final PacketTypeCommon type = packet.getPacketType();
+        PacketReceiveListener[] listeners = packetReceiveListenersByType.get(type);
+        if (listeners == null) {
+            listeners = computePacketReceiveListeners(type);
+            packetReceiveListenersByType.put(type, listeners);
         }
+        for (int i = 0; i < listeners.length; i++) {
+            listeners[i].onPacketReceive(packet);
+        }
+    }
+
+    private PacketReceiveListener[] computePacketReceiveListeners(PacketTypeCommon type) {
+        ArrayList<PacketReceiveListener> list = new ArrayList<>();
+        for (PacketReceiveListener check : packetReceiveListeners) {
+            PacketTypeCommon[] handled = check.getHandledPacketTypes();
+            if (handled == null || handled.length == 0 || contains(handled, type)) {
+                list.add(check);
+            }
+        }
+        return list.isEmpty() ? EMPTY_RECEIVE : list.toArray(new PacketReceiveListener[list.size()]);
     }
 
     public void onPreViaPacketReceive(final PacketReceiveEvent packet) {
-        for (PreViaPacketReceiveListener check : preViaPacketReceiveListeners) {
-            check.onPreViaPacketReceive(packet);
+        final PacketTypeCommon type = packet.getPacketType();
+        PreViaPacketReceiveListener[] listeners = preViaPacketReceiveListenersByType.get(type);
+        if (listeners == null) {
+            listeners = computePreViaPacketReceiveListeners(type);
+            preViaPacketReceiveListenersByType.put(type, listeners);
         }
+        for (int i = 0; i < listeners.length; i++) {
+            listeners[i].onPreViaPacketReceive(packet);
+        }
+    }
+
+    private PreViaPacketReceiveListener[] computePreViaPacketReceiveListeners(PacketTypeCommon type) {
+        ArrayList<PreViaPacketReceiveListener> list = new ArrayList<>();
+        for (PreViaPacketReceiveListener check : preViaPacketReceiveListeners) {
+            PacketTypeCommon[] handled = check.getHandledPacketTypes();
+            if (handled == null || handled.length == 0 || contains(handled, type)) {
+                list.add(check);
+            }
+        }
+        return list.isEmpty() ? EMPTY_PRE_VIA_RECEIVE : list.toArray(new PreViaPacketReceiveListener[list.size()]);
     }
 
     public void onPacketSend(final PacketSendEvent packet) {
-        for (PacketSendListener check : packetSendListeners) {
-            check.onPacketSend(packet);
+        final PacketTypeCommon type = packet.getPacketType();
+        PacketSendListener[] listeners = packetSendListenersByType.get(type);
+        if (listeners == null) {
+            listeners = computePacketSendListeners(type);
+            packetSendListenersByType.put(type, listeners);
+        }
+        for (int i = 0; i < listeners.length; i++) {
+            listeners[i].onPacketSend(packet);
         }
     }
 
-    public void onPreViaPacketSend(final PacketSendEvent packet) {
-        for (PreViaPacketSendListener check : preViaPacketSendListeners) {
-            check.onPreViaPacketSend(packet);
+    private PacketSendListener[] computePacketSendListeners(PacketTypeCommon type) {
+        ArrayList<PacketSendListener> list = new ArrayList<>();
+        for (PacketSendListener check : packetSendListeners) {
+            PacketTypeCommon[] handled = check.getHandledSendPacketTypes();
+            if (handled == null || handled.length == 0 || contains(handled, type)) {
+                list.add(check);
+            }
         }
+        return list.isEmpty() ? EMPTY_SEND : list.toArray(new PacketSendListener[list.size()]);
+    }
+
+    public void onPreViaPacketSend(final PacketSendEvent packet) {
+        final PacketTypeCommon type = packet.getPacketType();
+        PreViaPacketSendListener[] listeners = preViaPacketSendListenersByType.get(type);
+        if (listeners == null) {
+            listeners = computePreViaPacketSendListeners(type);
+            preViaPacketSendListenersByType.put(type, listeners);
+        }
+        for (int i = 0; i < listeners.length; i++) {
+            listeners[i].onPreViaPacketSend(packet);
+        }
+    }
+
+    private PreViaPacketSendListener[] computePreViaPacketSendListeners(PacketTypeCommon type) {
+        ArrayList<PreViaPacketSendListener> list = new ArrayList<>();
+        for (PreViaPacketSendListener check : preViaPacketSendListeners) {
+            PacketTypeCommon[] handled = check.getHandledPreViaSendPacketTypes();
+            if (handled == null || handled.length == 0 || contains(handled, type)) {
+                list.add(check);
+            }
+        }
+        return list.isEmpty() ? EMPTY_PRE_VIA_SEND : list.toArray(new PreViaPacketSendListener[list.size()]);
+    }
+
+    private static boolean contains(PacketTypeCommon[] array, PacketTypeCommon target) {
+        for (int i = 0; i < array.length; i++) {
+            if (array[i] == target) return true;
+        }
+        return false;
     }
 
     public void onPositionUpdate(final PositionUpdate position) {
@@ -412,31 +521,35 @@ public class CheckManager implements BasicReloadable {
     }
 
     public ExplosionHandler getExplosionHandler() {
-        return get(ExplosionHandler.class);
+        return explosionHandler;
     }
 
     public NoFall getNoFall() {
-        return get(NoFall.class);
+        return noFall;
     }
 
     public KnockbackHandler getKnockbackHandler() {
-        return get(KnockbackHandler.class);
+        return knockbackHandler;
     }
 
     public CompensatedCooldown getCompensatedCooldown() {
-        return get(CompensatedCooldown.class);
+        return compensatedCooldown;
     }
 
     public NoSlow getNoSlow() {
-        return get(NoSlow.class);
+        return noSlow;
     }
 
     public SetbackTeleportUtil getSetbackUtil() {
-        return get(SetbackTeleportUtil.class);
+        return setbackUtil;
     }
 
     public DebugHandler getDebugHandler() {
-        return get(DebugHandler.class);
+        return debugHandler;
+    }
+
+    public PacketWorldBorder getPacketWorldBorder() {
+        return packetWorldBorder;
     }
 
     private void init() {

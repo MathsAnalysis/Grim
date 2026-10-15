@@ -4,7 +4,7 @@ import ac.grim.grimac.api.storage.verbose.Verbose;
 import ac.grim.grimac.checks.Check;
 import ac.grim.grimac.checks.CheckData;
 import ac.grim.grimac.checks.impl.verbose.VerboseCodecs;
-import ac.grim.grimac.checks.type.PacketReceiveListener;
+import ac.grim.grimac.checks.type.PreViaPacketReceiveListener;
 import ac.grim.grimac.player.GrimPlayer;
 import com.github.retrooper.packetevents.event.PacketReceiveEvent;
 import com.github.retrooper.packetevents.protocol.entity.type.EntityType;
@@ -13,15 +13,24 @@ import com.github.retrooper.packetevents.protocol.packettype.PacketType;
 import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientEntityAction;
 
 @CheckData(name = "VehicleD", stableKey = "grim.vehicle.spoofed_jump", experimental = true, description = "Jumped in a vehicle that cannot jump")
-public class VehicleD extends Check implements PacketReceiveListener {
+public class VehicleD extends Check implements PreViaPacketReceiveListener {
     private static final Verbose V = Verbose.of("vehicle=[{entity}|null]");
 
     public VehicleD(GrimPlayer player) {
         super(player);
     }
 
+    private static final com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon[] HANDLED_PACKETS = new com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon[]{
+            PacketType.Play.Client.ENTITY_ACTION
+    };
+
     @Override
-    public void onPacketReceive(final PacketReceiveEvent event) {
+    public com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon[] getHandledPacketTypes() {
+        return HANDLED_PACKETS;
+    }
+
+    @Override
+    public void onPreViaPacketReceive(final PacketReceiveEvent event) {
         if (event.getPacketType() == PacketType.Play.Client.ENTITY_ACTION && new WrapperPlayClientEntityAction(event).getAction() == WrapperPlayClientEntityAction.Action.START_JUMPING_WITH_HORSE) {
             final EntityType vehicle = player.getVehicleType();
 

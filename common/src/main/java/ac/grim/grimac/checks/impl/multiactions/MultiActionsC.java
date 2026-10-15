@@ -3,7 +3,7 @@ package ac.grim.grimac.checks.impl.multiactions;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 import ac.grim.grimac.checks.Check;
 import ac.grim.grimac.checks.CheckData;
-import ac.grim.grimac.checks.type.PacketReceiveListener;
+import ac.grim.grimac.checks.type.PreViaPacketReceiveListener;
 import ac.grim.grimac.player.GrimPlayer;
 import com.github.retrooper.packetevents.event.PacketReceiveEvent;
 import com.github.retrooper.packetevents.protocol.packettype.PacketType;
@@ -12,7 +12,7 @@ import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 
 @CheckData(name = "MultiActionsC", stableKey = "grim.multiactions.inventory_click_while_moving", description = "Clicked in inventory while moving")
-public class MultiActionsC extends Check implements PacketReceiveListener {
+public class MultiActionsC extends Check implements PreViaPacketReceiveListener {
     private static final Verbose V = Verbose.of("sprinting={bool}, sneaking={bool}, input={bool}");
 
     public MultiActionsC(GrimPlayer player) {
@@ -34,8 +34,17 @@ public class MultiActionsC extends Check implements PacketReceiveListener {
         return player.supportsEndTick() && player.packetStateData.knownInput.moving();
     }
 
+    private static final com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon[] HANDLED_PACKETS = new com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon[]{
+            PacketType.Play.Client.CLICK_WINDOW
+    };
+
     @Override
-    public void onPacketReceive(PacketReceiveEvent event) {
+    public com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon[] getHandledPacketTypes() {
+        return HANDLED_PACKETS;
+    }
+
+    @Override
+    public void onPreViaPacketReceive(PacketReceiveEvent event) {
         if (event.getPacketType() != PacketType.Play.Client.CLICK_WINDOW) return;
         if (player.serverOpenedInventoryThisTick) return;
 

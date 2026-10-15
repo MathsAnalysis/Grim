@@ -29,6 +29,17 @@ public class ChatC extends Check implements PreViaPacketReceiveListener {
     // optionally allow cheats like autogg
     private @Nullable Predicate<String> exemptRegex;
 
+    private static final com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon[] HANDLED_PACKETS = new com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon[]{
+            PacketType.Play.Client.CHAT_MESSAGE,
+            PacketType.Play.Client.CHAT_COMMAND_UNSIGNED,
+            PacketType.Play.Client.CHAT_COMMAND
+    };
+
+    @Override
+    public com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon[] getHandledPacketTypes() {
+        return HANDLED_PACKETS;
+    }
+
     @Override
     public void onPreViaPacketReceive(PacketReceiveEvent event) {
         if (event.getPacketType() == PacketType.Play.Client.CHAT_MESSAGE) {

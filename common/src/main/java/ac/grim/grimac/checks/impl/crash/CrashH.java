@@ -3,22 +3,31 @@ package ac.grim.grimac.checks.impl.crash;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 import ac.grim.grimac.checks.Check;
 import ac.grim.grimac.checks.CheckData;
-import ac.grim.grimac.checks.type.PacketReceiveListener;
+import ac.grim.grimac.checks.type.PreViaPacketReceiveListener;
 import ac.grim.grimac.player.GrimPlayer;
 import com.github.retrooper.packetevents.event.PacketReceiveEvent;
 import com.github.retrooper.packetevents.protocol.packettype.PacketType;
 import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientTabComplete;
 
 @CheckData(name = "CrashH", stableKey = "grim.crash.invalid_tab_complete", description = "Sent a tab complete request with invalid or excessive length")
-public class CrashH extends Check implements PacketReceiveListener {
+public class CrashH extends Check implements PreViaPacketReceiveListener {
     private static final Verbose V = Verbose.of("[(length)|(invalid)] length={sint}");
 
     public CrashH(GrimPlayer player) {
         super(player);
     }
 
+    private static final com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon[] HANDLED_PACKETS = new com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon[]{
+            PacketType.Play.Client.TAB_COMPLETE
+    };
+
     @Override
-    public void onPacketReceive(PacketReceiveEvent event) {
+    public com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon[] getHandledPacketTypes() {
+        return HANDLED_PACKETS;
+    }
+
+    @Override
+    public void onPreViaPacketReceive(PacketReceiveEvent event) {
         if (event.getPacketType() == PacketType.Play.Client.TAB_COMPLETE) {
             WrapperPlayClientTabComplete wrapper = new WrapperPlayClientTabComplete(event);
             String text = wrapper.getText();

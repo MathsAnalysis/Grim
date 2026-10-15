@@ -17,6 +17,18 @@ public class MultiActionsA extends Check implements PreViaPacketReceiveListener 
         super(player);
     }
 
+    private static final com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon[] HANDLED_PACKETS = new com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon[]{
+            PacketType.Play.Client.INTERACT_ENTITY,
+            PacketType.Play.Client.ATTACK,
+            PacketType.Play.Client.SPECTATE_ENTITY,
+            PacketType.Play.Client.PLAYER_DIGGING
+    };
+
+    @Override
+    public com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon[] getHandledPacketTypes() {
+        return HANDLED_PACKETS;
+    }
+
     @Override
     public void onPreViaPacketReceive(PacketReceiveEvent event) {
         if (player.packetStateData.isSlowedByUsingItem() && (player.packetStateData.lastSlotSelected == player.packetStateData.getSlowedByUsingItemSlot() || player.packetStateData.itemInUseHand == InteractionHand.OFF_HAND)) {

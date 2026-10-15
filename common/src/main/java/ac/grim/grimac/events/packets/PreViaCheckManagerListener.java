@@ -24,14 +24,9 @@ public class PreViaCheckManagerListener extends PacketListenerAbstract {
 
     @Override
     public void onPacketReceive(final @NotNull PacketReceiveEvent event) {
-        // Allow checks to listen to configuration packets
-        if (event.getConnectionState() == ConnectionState.CONFIGURATION) {
-            final GrimPlayer player = GrimAPI.INSTANCE.getPlayerDataManager().getPlayer(event.getUser());
-            if (player == null) return;
-            player.checkManager.onPreViaPacketReceive(event);
-        }
+        final ConnectionState state = event.getConnectionState();
+        if (state != ConnectionState.PLAY && state != ConnectionState.CONFIGURATION) return;
 
-        if (event.getConnectionState() != ConnectionState.PLAY) return;
         final GrimPlayer player = GrimAPI.INSTANCE.getPlayerDataManager().getPlayer(event.getUser());
         if (player == null) return;
 
@@ -40,14 +35,15 @@ public class PreViaCheckManagerListener extends PacketListenerAbstract {
 
     @Override
     public void onPacketSend(final @NotNull PacketSendEvent event) {
-        // Allow checks to listen to configuration packets
-        if (event.getConnectionState() == ConnectionState.CONFIGURATION) {
-            final GrimPlayer player = GrimAPI.INSTANCE.getPlayerDataManager().getPlayer(event.getUser());
-            if (player == null) return;
-            player.checkManager.onPreViaPacketSend(event);
+        final ConnectionState state = event.getConnectionState();
+        if (state != ConnectionState.PLAY) {
+            if (state == ConnectionState.CONFIGURATION) {
+                final GrimPlayer player = GrimAPI.INSTANCE.getPlayerDataManager().getPlayer(event.getUser());
+                if (player != null) player.checkManager.onPreViaPacketSend(event);
+            }
+            return;
         }
 
-        if (event.getConnectionState() != ConnectionState.PLAY) return;
         final GrimPlayer player = GrimAPI.INSTANCE.getPlayerDataManager().getPlayer(event.getUser());
         if (player == null) return;
 
@@ -55,9 +51,7 @@ public class PreViaCheckManagerListener extends PacketListenerAbstract {
         if (packetType == PacketType.Play.Server.OPEN_WINDOW || packetType == PacketType.Play.Server.OPEN_HORSE_WINDOW) {
             player.sendTransaction();
             player.latencyUtils.addRealTimeTask(player.lastTransactionSent.get(), () -> player.serverOpenedInventoryThisTick = true);
-        }
-
-        if (packetType == PacketType.Play.Server.BUNDLE) {
+        } else if (packetType == PacketType.Play.Server.BUNDLE) {
             player.packetStateData.sendingBundlePacket = !player.packetStateData.sendingBundlePacket;
         }
 

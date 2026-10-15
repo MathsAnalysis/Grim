@@ -43,10 +43,10 @@ public class FastBreak extends Check implements BlockBreakListener, PreViaPacket
     // The block the player is currently breaking
     Vector3i targetBlockPosition = null;
     // The maximum amount of damage the player deals to the block
-    //
     double maximumBlockDamage = 0;
     // The last time a finish digging packet was sent, to enforce 0.3-second delay after non-instabreak
     long lastFinishBreak = 0;
+    boolean lastWasInstabreak = false;
     // The time the player started to break the block, to know how long the player waited until they finished breaking the block
     long startBreak = 0;
 
@@ -56,6 +56,11 @@ public class FastBreak extends Check implements BlockBreakListener, PreViaPacket
 
     @Override
     public void onBlockBreak(BlockBreak blockBreak) {
+        if (blockBreak.action == DiggingAction.CANCELLED_DIGGING) {
+            targetBlockPosition = null;
+            return;
+        }
+
         if (blockBreak.action == DiggingAction.START_DIGGING) {
             if (!ViaVersionUtil.isAvailable) {
                 // Exempt all blocks that do not exist in the player version
@@ -76,47 +81,68 @@ public class FastBreak extends Check implements BlockBreakListener, PreViaPacket
 
             // FIXME: getBlockDamage might not return the correct value if the player switched slots before this
             maximumBlockDamage = BlockBreakSpeed.getBlockDamage(player, block);
+            boolean isInstaBreak = maximumBlockDamage >= 1.0;
 
             double breakDelay = System.currentTimeMillis() - lastFinishBreak;
 
-            if (breakDelay >= 275) { // Reduce buffer if "close enough"
+            // In vanilla Minecraft, the 5-tick (250-300ms) delay is ONLY enforced when destroying
+            // a block that is NOT an instant break. If the previous block was an instant break,
+            // or the current block is an instant break, there is no 5-tick delay between breaks.
+            if (lastWasInstabreak || isInstaBreak) {
                 blockDelayBalance *= 0.9;
-            } else { // Otherwise, increase buffer
-                blockDelayBalance += 300 - breakDelay;
+            } else if (lastFinishBreak > 0) {
+                if (breakDelay >= 275) { // Reduce buffer if "close enough"
+                    blockDelayBalance *= 0.9;
+                } else { // Otherwise, increase buffer
+                    blockDelayBalance += 300 - breakDelay;
+                }
+
+                if (blockDelayBalance > 1000) { // If more than a second of advantage
+                    int type = VerboseCodecs.block(blockBreak.block.getType(), player.getClientVersion());
+                    if (flag(V.write(verbose()).bool(true).ulong((long) breakDelay).f64(0).f64(0).sint(type)) && shouldModifyPackets()) {
+                        blockBreak.cancel();
+                    }
+                }
             }
 
-            if (blockDelayBalance > 1000) { // If more than a second of advantage
-                int type = VerboseCodecs.block(blockBreak.block.getType(), player.getClientVersion());
-                if (flag(V.write(verbose()).bool(true).ulong((long) breakDelay).f64(0).f64(0).sint(type)) && shouldModifyPackets()) {
-                    blockBreak.cancel();
-                }
+            if (isInstaBreak) {
+                lastFinishBreak = System.currentTimeMillis();
+                lastWasInstabreak = true;
+                targetBlockPosition = null; // Instant break finishes immediately on START_DIGGING
             }
 
             clampBalance();
         }
 
         if (blockBreak.action == DiggingAction.FINISHED_DIGGING && targetBlockPosition != null) {
-            double predictedTime = Math.ceil(1 / maximumBlockDamage) * 50;
-            double realTime = System.currentTimeMillis() - startBreak;
-            double diff = predictedTime - realTime;
+            boolean isInstaBreak = maximumBlockDamage >= 1.0;
+            if (!isInstaBreak) {
+                double predictedTime = Math.ceil(1 / maximumBlockDamage) * 50;
+                double realTime = System.currentTimeMillis() - startBreak;
+                double diff = predictedTime - realTime;
 
-            clampBalance();
+                clampBalance();
 
-            if (diff < 25) {  // Reduce buffer if "close enough"
-                blockBreakBalance *= 0.9;
-            } else { // Otherwise, increase buffer
-                blockBreakBalance += diff;
-            }
-
-            if (blockBreakBalance > 1000) { // If more than a second of advantage
-                int type = VerboseCodecs.block(blockBreak.block.getType(), player.getClientVersion());
-                if (flag(V.write(verbose()).bool(false).ulong(0).f64(diff).f64(blockBreakBalance).sint(type)) && shouldModifyPackets()) {
-                    blockBreak.cancel();
+                if (diff < 25) {  // Reduce buffer if "close enough"
+                    blockBreakBalance *= 0.9;
+                } else { // Otherwise, increase buffer
+                    blockBreakBalance += diff;
                 }
+
+                if (blockBreakBalance > 1000) { // If more than a second of advantage
+                    int type = VerboseCodecs.block(blockBreak.block.getType(), player.getClientVersion());
+                    if (flag(V.write(verbose()).bool(false).ulong(0).f64(diff).f64(blockBreakBalance).sint(type)) && shouldModifyPackets()) {
+                        blockBreak.cancel();
+                    }
+                }
+            } else {
+                blockBreakBalance *= 0.9;
             }
 
             // also set start time because the breaking netcode is fucked on 1.14.4+
             lastFinishBreak = startBreak = System.currentTimeMillis();
+            lastWasInstabreak = isInstaBreak;
+            targetBlockPosition = null;
         }
     }
 

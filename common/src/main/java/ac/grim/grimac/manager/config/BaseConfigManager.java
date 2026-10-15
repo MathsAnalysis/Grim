@@ -1,5 +1,6 @@
 package ac.grim.grimac.manager.config;
 
+import ac.grim.grimac.GrimAPI;
 import ac.grim.grimac.api.config.ConfigManager;
 import ac.grim.grimac.utils.anticheat.LogUtil;
 import lombok.Getter;
@@ -16,8 +17,14 @@ import java.util.regex.PatternSyntaxException;
 public class BaseConfigManager {
 
     private final List<Pattern> ignoredClientPatterns = new ArrayList<>();
-    @Getter
     private ConfigManager config = null;
+
+    public ConfigManager getConfig() {
+        if (config == null) {
+            return GrimAPI.INSTANCE.getExternalAPI().getConfigManagerFile();
+        }
+        return config;
+    }
     @Getter
     private boolean printAlertsToConsole = false;
     @Getter
