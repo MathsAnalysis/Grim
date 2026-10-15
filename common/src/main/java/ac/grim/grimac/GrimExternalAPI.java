@@ -11,6 +11,7 @@ import ac.grim.grimac.api.storage.backend.BackendRegistry;
 import ac.grim.grimac.manager.config.ConfigManagerFileImpl;
 import ac.grim.grimac.manager.init.start.StartableInitable;
 import ac.grim.grimac.player.GrimPlayer;
+import ac.grim.grimac.checks.impl.combat.AimAI;
 import ac.grim.grimac.utils.anticheat.LogUtil;
 import ac.grim.grimac.utils.anticheat.MessageUtil;
 import ac.grim.grimac.utils.common.ConfigReloadObserver;
@@ -20,6 +21,7 @@ import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
@@ -253,6 +255,50 @@ public class GrimExternalAPI implements GrimAbstractAPI, ConfigReloadObserver, S
         variableReplacements.putIfAbsent("%fast_math%", user -> !user.isVanillaMath() + "");
         variableReplacements.putIfAbsent("%tps%", user -> String.format("%.2f", GrimAPI.INSTANCE.getPlatformServer().getTPS()));
         variableReplacements.putIfAbsent("%version%", GrimUser::getVersionName);
+        variableReplacements.putIfAbsent("%certainty%", user -> {
+            if (user instanceof GrimPlayer player) {
+                try {
+                    AimAI ai = player.checkManager.get(AimAI.class);
+                    if (ai != null && ai.getLatestScore() > 0.0) {
+                        return String.format(Locale.ROOT, "%.1f%%", ai.getLatestScore() * 100.0);
+                    }
+                } catch (Exception ignored) {}
+            }
+            return "0.0%";
+        });
+        variableReplacements.putIfAbsent("%score%", user -> {
+            if (user instanceof GrimPlayer player) {
+                try {
+                    AimAI ai = player.checkManager.get(AimAI.class);
+                    if (ai != null && ai.getLatestScore() > 0.0) {
+                        return String.format(Locale.ROOT, "%.1f%%", ai.getLatestScore() * 100.0);
+                    }
+                } catch (Exception ignored) {}
+            }
+            return "0.0%";
+        });
+        variableReplacements.putIfAbsent("%ai_score%", user -> {
+            if (user instanceof GrimPlayer player) {
+                try {
+                    AimAI ai = player.checkManager.get(AimAI.class);
+                    if (ai != null && ai.getLatestScore() > 0.0) {
+                        return String.format(Locale.ROOT, "%.1f%%", ai.getLatestScore() * 100.0);
+                    }
+                } catch (Exception ignored) {}
+            }
+            return "0.0%";
+        });
+        variableReplacements.putIfAbsent("%ml_score%", user -> {
+            if (user instanceof GrimPlayer player) {
+                try {
+                    AimAI ai = player.checkManager.get(AimAI.class);
+                    if (ai != null && ai.getLatestScore() > 0.0) {
+                        return String.format(Locale.ROOT, "%.1f%%", ai.getLatestScore() * 100.0);
+                    }
+                } catch (Exception ignored) {}
+            }
+            return "0.0%";
+        });
         // static variables
         staticReplacements.put("%prefix%", MessageUtil.translateAlternateColorCodes('&', GrimAPI.INSTANCE.getConfigManager().getPrefix()));
         staticReplacements.putIfAbsent("%grim_version%", getGrimVersion());

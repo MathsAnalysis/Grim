@@ -20,7 +20,9 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
 
+import ac.grim.grimac.checks.Check;
 import java.awt.*;
+import java.util.Locale;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -154,15 +156,64 @@ public class DiscordManager implements StartableInitable, ReloadableInitable {
         );
     }
 
+    public void sendAlert(@NotNull GrimPlayer player, String verbose, @NotNull Check check, int violations) {
+        if (isDisabled()) {
+            return;
+        }
+
+        double certainty = PunishmentManager.calculateCertainty(player, check, violations);
+        double mlScore = PunishmentManager.getMlScore(player);
+        String certaintyPct = String.format(Locale.ROOT, "%.1f%%", certainty * 100.0);
+        String mlScorePct = String.format(Locale.ROOT, "%.1f%%", mlScore * 100.0);
+
+        Map<String, String> statics = new HashMap<>(GrimAPI.INSTANCE.getExternalAPI().getStaticReplacements());
+        statics.put("%check%", check.getDisplayName());
+        statics.put("%violations%", Integer.toString(violations));
+        statics.put("%certainty%", certaintyPct);
+        statics.put("%score%", certaintyPct);
+        statics.put("%ml_score%", mlScorePct);
+
+        Map<String, Function<GrimUser, String>> dynamics = GrimAPI.INSTANCE.getExternalAPI().getVariableReplacements();
+
+        String content = compiledContent.render(player, statics, dynamics, backtickReplacement);
+
+        Embed embed = new Embed(content)
+                .color(embedColor)
+                .title(embedTitle)
+                .imageURL(MessageUtil.replacePlaceholders(player, embedImageUrl, false))
+                .thumbnailURL(MessageUtil.replacePlaceholders(player, embedThumbnailUrl, false))
+                .footer(new EmbedFooter(
+                        MessageUtil.replacePlaceholders(player, embedFooterText, false),
+                        MessageUtil.replacePlaceholders(player, embedFooterUrl, false)
+                ));
+
+        if (includeTimestamp) embed.timestamp(Instant.now());
+
+        if (!verbose.isEmpty() && includeVerbose) {
+            embed.addFields(new EmbedField("Verbose", CompiledDiscordTemplate.escapeMarkdown(verbose), true));
+        }
+
+        sendWebhookMessage(new WebhookMessage().addEmbeds(embed));
+    }
+
     public void sendAlert(@NotNull GrimPlayer player, String verbose, String checkName, int violations) {
         if (isDisabled()) {
             return;
         }
 
+        double mlScore = PunishmentManager.getMlScore(player);
+        double certainty = 0.88 + (0.119 * (1.0 - Math.exp(-violations / 2.5)));
+        if (mlScore > 0.0) certainty = Math.max(certainty, mlScore);
+        String certaintyPct = String.format(Locale.ROOT, "%.1f%%", certainty * 100.0);
+        String mlScorePct = String.format(Locale.ROOT, "%.1f%%", mlScore * 100.0);
+
         // Per-alert overlay — avoids polluting the global static map
         Map<String, String> statics = new HashMap<>(GrimAPI.INSTANCE.getExternalAPI().getStaticReplacements());
         statics.put("%check%", checkName);
         statics.put("%violations%", Integer.toString(violations));
+        statics.put("%certainty%", certaintyPct);
+        statics.put("%score%", certaintyPct);
+        statics.put("%ml_score%", mlScorePct);
 
         Map<String, Function<GrimUser, String>> dynamics = GrimAPI.INSTANCE.getExternalAPI().getVariableReplacements();
 
