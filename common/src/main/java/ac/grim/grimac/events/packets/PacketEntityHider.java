@@ -59,15 +59,15 @@ public class PacketEntityHider extends PacketListenerAbstract {
                 visibility.onDestroy(entityId);
             }
         } else if (event.getPacketType() == PacketType.Play.Server.ENTITY_RELATIVE_MOVE) {
-            if (visibility.isHidden(new WrapperPlayServerEntityRelativeMove(event).getEntityId())) event.setCancelled(true);
+            if (visibility.hasHiddenEntities() && visibility.isHidden(new WrapperPlayServerEntityRelativeMove(event).getEntityId())) event.setCancelled(true);
         } else if (event.getPacketType() == PacketType.Play.Server.ENTITY_RELATIVE_MOVE_AND_ROTATION) {
-            if (visibility.isHidden(new WrapperPlayServerEntityRelativeMoveAndRotation(event).getEntityId())) event.setCancelled(true);
+            if (visibility.hasHiddenEntities() && visibility.isHidden(new WrapperPlayServerEntityRelativeMoveAndRotation(event).getEntityId())) event.setCancelled(true);
         } else if (event.getPacketType() == PacketType.Play.Server.ENTITY_ROTATION) {
-            if (visibility.isHidden(new WrapperPlayServerEntityRotation(event).getEntityId())) event.setCancelled(true);
+            if (visibility.hasHiddenEntities() && visibility.isHidden(new WrapperPlayServerEntityRotation(event).getEntityId())) event.setCancelled(true);
         } else if (event.getPacketType() == PacketType.Play.Server.ENTITY_TELEPORT) {
-            if (visibility.isHidden(new WrapperPlayServerEntityTeleport(event).getEntityId())) event.setCancelled(true);
+            if (visibility.hasHiddenEntities() && visibility.isHidden(new WrapperPlayServerEntityTeleport(event).getEntityId())) event.setCancelled(true);
         } else if (event.getPacketType() == PacketType.Play.Server.ENTITY_POSITION_SYNC) {
-            if (visibility.isHidden(new WrapperPlayServerEntityPositionSync(event).getId())) event.setCancelled(true);
+            if (visibility.hasHiddenEntities() && visibility.isHidden(new WrapperPlayServerEntityPositionSync(event).getId())) event.setCancelled(true);
         } else if (event.getPacketType() == PacketType.Play.Server.ENTITY_METADATA) {
             WrapperPlayServerEntityMetadata metadata = new WrapperPlayServerEntityMetadata(event);
             if (visibility.onMetadata(metadata.getEntityId(), metadata.getEntityMetadata())) event.setCancelled(true);
