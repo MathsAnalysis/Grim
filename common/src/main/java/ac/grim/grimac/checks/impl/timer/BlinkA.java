@@ -8,7 +8,7 @@ import ac.grim.grimac.player.GrimPlayer;
 import com.github.retrooper.packetevents.event.PacketReceiveEvent;
 import com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon;
 
-@CheckData(name = "BlinkA", stableKey = "grim.timer.blink_a", description = "Sent more movement packets than elapsed time allows since the last transaction", experimental = true, setback = -1)
+@CheckData(name = "BlinkA", stableKey = "grim.timer.blink_a", description = "Sent more movement packets than elapsed time allows since the last transaction", experimental = true, setback = 0)
 public class BlinkA extends Check implements PrePredictionPacketReceiveListener {
     private static final Verbose V = Verbose.of("received={uint}, elapsed={f64:%.2f}, tolerance={f64:%.2f}, buffer={uint}");
 
@@ -55,9 +55,18 @@ public class BlinkA extends Check implements PrePredictionPacketReceiveListener 
         if (!exceedsBurstBound(received, elapsedTicks)) return;
 
         buffer++;
-        if (buffer >= FLAG_BUFFER && !flaggedThisWindow) {
-            flaggedThisWindow = true;
-            flag(V.write(verbose()).uint(received).f64(elapsedTicks).f64(LONG_WINDOW_TOLERANCE * elapsedTicks).uint(buffer));
+        if (buffer >= FLAG_BUFFER) {
+            if (!flaggedThisWindow) {
+                flaggedThisWindow = true;
+                flagWithSetback(V.write(verbose()).uint(received).f64(elapsedTicks).f64(LONG_WINDOW_TOLERANCE * elapsedTicks).uint(buffer));
+            } else {
+                setbackIfAboveSetbackVL();
+            }
+
+            if (shouldModifyPackets()) {
+                event.setCancelled(true);
+                player.onPacketCancel();
+            }
         }
     }
 

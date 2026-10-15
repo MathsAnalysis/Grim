@@ -23,6 +23,16 @@ public class PositionBreakB extends Check implements BlockBreakListener {
     }
 
     @Override
+    public boolean isApplicable() {
+        // Disabled: In vanilla Minecraft (especially 1.9+) and modern clients,
+        // CANCELLED_DIGGING (ABORT_DESTROY_BLOCK) legitimately sends the face of the block
+        // being aborted (faces 0-5). Tracking cancelled faces across different blocks causes
+        // false flags whenever a player rotates their view away while mining.
+        // Truly invalid face IDs (< 0 or > 5) are already handled by InvalidBreak.
+        return false;
+    }
+
+    @Override
     public void onBlockBreak(BlockBreak blockBreak) {
         if (blockBreak.action == DiggingAction.START_DIGGING) {
             if (blockBreak.face == lastFace) {
@@ -34,6 +44,7 @@ public class PositionBreakB extends Check implements BlockBreakListener {
             flag(V.write(verbose())
                     .uint(VerboseCodecs.enumId(lastFace))
                     .uint(VerboseCodecs.enumId(blockBreak.action)));
+            lastFace = null;
         }
 
         if (blockBreak.action == DiggingAction.CANCELLED_DIGGING) {

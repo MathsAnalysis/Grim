@@ -43,6 +43,7 @@ public class GrimExternalAPI implements GrimAbstractAPI, ConfigReloadObserver, S
     @Getter
     private final Map<String, String> staticReplacements = new ConcurrentHashMap<>();
     private final Map<String, Function<Object, Object>> functions = new ConcurrentHashMap<>();
+    @Getter
     private final ConfigManagerFileImpl configManagerFile = new ConfigManagerFileImpl();
     private final String grimVersion;
     private ConfigManager configManager = null;
@@ -192,17 +193,23 @@ public class GrimExternalAPI implements GrimAbstractAPI, ConfigReloadObserver, S
     }
 
     private boolean successfulReload(ConfigManager config) {
+        boolean reloadSuccess = false;
         try {
             config.reload();
+            reloadSuccess = true;
+        } catch (Exception e) {
+            LogUtil.error("Failed to reload config", e);
+        }
+        try {
             GrimAPI.INSTANCE.getConfigManager().load(config);
             if (started) GrimAPI.INSTANCE.getConfigManager().start();
             onReload(config);
             if (started)
                 GrimAPI.INSTANCE.getScheduler().getAsyncScheduler().runNow(GrimAPI.INSTANCE.getGrimPlugin(),
                         () -> Channels.RELOAD.fire(true));
-            return true;
+            return reloadSuccess;
         } catch (Exception e) {
-            LogUtil.error("Failed to reload config", e);
+            LogUtil.error("Failed to apply config reload", e);
         }
         if (started)
             GrimAPI.INSTANCE.getScheduler().getAsyncScheduler().runNow(GrimAPI.INSTANCE.getGrimPlugin(),

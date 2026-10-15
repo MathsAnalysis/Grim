@@ -17,6 +17,19 @@ public class ChatD extends Check implements PreViaPacketReceiveListener {
         super(player);
     }
 
+    private static final com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon[] HANDLED_PACKETS = new com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon[]{
+            PacketType.Play.Client.CHAT_MESSAGE,
+            PacketType.Play.Client.CHAT_COMMAND_UNSIGNED,
+            PacketType.Play.Client.CHAT_COMMAND,
+            PacketType.Play.Client.CLIENT_SETTINGS,
+            PacketType.Configuration.Client.CLIENT_SETTINGS
+    };
+
+    @Override
+    public com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon[] getHandledPacketTypes() {
+        return HANDLED_PACKETS;
+    }
+
     @Override
     public void onPreViaPacketReceive(PacketReceiveEvent event) {
         if (event.getPacketType() == PacketType.Play.Client.CHAT_MESSAGE

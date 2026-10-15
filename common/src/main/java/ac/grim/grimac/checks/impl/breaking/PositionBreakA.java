@@ -37,9 +37,8 @@ public class PositionBreakA extends Check implements BlockBreakListener {
         }
 
         SimpleCollisionBox eyePositions = new SimpleCollisionBox(player.x, player.y + minEyeHeight, player.z, player.x, player.y + maxEyeHeight, player.z);
-        if (!player.packetStateData.didLastMovementIncludePosition || player.canSkipTicks()) {
-            eyePositions.expand(player.getMovementThreshold());
-        }
+        double threshold = Math.max(1e-3, !player.packetStateData.didLastMovementIncludePosition || player.canSkipTicks() ? player.getMovementThreshold() : 1e-3);
+        eyePositions.expand(threshold);
 
         // If the player is inside a block, then they can ray trace through the block and hit the other side of the block
         if (eyePositions.isIntersected(combined)) {

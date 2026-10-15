@@ -55,17 +55,28 @@ public final class BlockBreak {
         List<SimpleCollisionBox> boxes = new ArrayList<>();
         placedOn.downCast(boxes);
 
-        SimpleCollisionBox combined = new SimpleCollisionBox(position.x, position.y, position.z);
-        for (SimpleCollisionBox box : boxes) {
-            double minX = Math.max(box.minX, combined.minX);
-            double minY = Math.max(box.minY, combined.minY);
-            double minZ = Math.max(box.minZ, combined.minZ);
-            double maxX = Math.min(box.maxX, combined.maxX);
-            double maxY = Math.min(box.maxY, combined.maxY);
-            double maxZ = Math.min(box.maxZ, combined.maxZ);
-            combined = new SimpleCollisionBox(minX, minY, minZ, maxX, maxY, maxZ);
+        if (boxes.isEmpty()) {
+            return new SimpleCollisionBox(position.x, position.y, position.z);
         }
 
-        return combined;
+        SimpleCollisionBox first = boxes.get(0);
+        double minX = first.minX;
+        double minY = first.minY;
+        double minZ = first.minZ;
+        double maxX = first.maxX;
+        double maxY = first.maxY;
+        double maxZ = first.maxZ;
+
+        for (int i = 1; i < boxes.size(); i++) {
+            SimpleCollisionBox box = boxes.get(i);
+            minX = Math.min(minX, box.minX);
+            minY = Math.min(minY, box.minY);
+            minZ = Math.min(minZ, box.minZ);
+            maxX = Math.max(maxX, box.maxX);
+            maxY = Math.max(maxY, box.maxY);
+            maxZ = Math.max(maxZ, box.maxZ);
+        }
+
+        return new SimpleCollisionBox(minX, minY, minZ, maxX, maxY, maxZ);
     }
 }

@@ -13,7 +13,7 @@ import com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon;
 import com.github.retrooper.packetevents.protocol.player.ClientVersion;
 import com.github.retrooper.packetevents.protocol.player.GameMode;
 
-@CheckData(name = "BlinkB", stableKey = "grim.timer.blink_b", description = "Did not send a position update within the position reminder interval", experimental = true, setback = -1)
+@CheckData(name = "BlinkB", stableKey = "grim.timer.blink_b", description = "Did not send a position update within the position reminder interval", experimental = true, setback = 0)
 public class BlinkB extends Check implements PreViaPacketReceiveListener, PacketSendListener {
     private static final Verbose V = Verbose.of("ticks={uint}, windows={uint}");
 
@@ -53,6 +53,18 @@ public class BlinkB extends Check implements PreViaPacketReceiveListener, Packet
         }
     }
 
+    private static final PacketTypeCommon[] HANDLED_PACKETS = new PacketTypeCommon[]{
+            PacketType.Play.Client.PLAYER_LOADED,
+            PacketType.Play.Client.PLAYER_POSITION,
+            PacketType.Play.Client.PLAYER_POSITION_AND_ROTATION,
+            PacketType.Play.Client.CLIENT_TICK_END
+    };
+
+    @Override
+    public PacketTypeCommon[] getHandledPacketTypes() {
+        return HANDLED_PACKETS;
+    }
+
     @Override
     public void onPreViaPacketReceive(PacketReceiveEvent event) {
         if (player.disableGrim) return;
@@ -66,7 +78,7 @@ public class BlinkB extends Check implements PreViaPacketReceiveListener, Packet
         }
 
         if (packetType == PacketType.Play.Client.PLAYER_POSITION || packetType == PacketType.Play.Client.PLAYER_POSITION_AND_ROTATION) {
-            closeWindow();
+            closeWindow(event);
             return;
         }
 
@@ -102,7 +114,7 @@ public class BlinkB extends Check implements PreViaPacketReceiveListener, Packet
                 || player.getSetbackTeleportUtil().insideUnloadedChunk();
     }
 
-    private void closeWindow() {
+    private void closeWindow(PacketReceiveEvent event) {
         int windowTicks = ticks;
         ticks = 0;
 
@@ -115,8 +127,12 @@ public class BlinkB extends Check implements PreViaPacketReceiveListener, Packet
         lastWindowTime = now;
 
         if (++windows >= FLAG_WINDOWS) {
-            flag(V.write(verbose()).uint(windowTicks).uint(windows));
+            flagWithSetback(V.write(verbose()).uint(windowTicks).uint(windows));
             windows = 0;
+            if (shouldModifyPackets()) {
+                event.setCancelled(true);
+                player.onPacketCancel();
+            }
         }
     }
 }

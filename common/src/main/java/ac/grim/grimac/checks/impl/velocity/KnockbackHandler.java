@@ -108,6 +108,10 @@ public class KnockbackHandler extends Check implements PacketSendListener, PostP
     }
 
     public VelocityData calculateRequiredKB(int entityID, int transaction, boolean isJustTesting) {
+        if (firstBreadMap.isEmpty() && lastKnockbackKnownTaken.isEmpty()) {
+            return null;
+        }
+
         tickKnockback(transaction);
 
         VelocityData returnLastKB = null;
@@ -242,6 +246,9 @@ public class KnockbackHandler extends Check implements PacketSendListener, PostP
     }
 
     public VelocityData calculateFirstBreadKnockback(int entityID, int transaction) {
+        if (firstBreadMap.isEmpty() && lastKnockbackKnownTaken.isEmpty() && firstBreadOnlyKnockback == null) {
+            return null;
+        }
         tickKnockback(transaction);
         if (firstBreadOnlyKnockback != null && firstBreadOnlyKnockback.entityID == entityID)
             return firstBreadOnlyKnockback;

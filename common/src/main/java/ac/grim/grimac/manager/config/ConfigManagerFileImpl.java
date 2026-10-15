@@ -28,7 +28,12 @@ public class ConfigManagerFileImpl implements ConfigManager, BasicReloadable {
     }
 
     private File getConfigFile(String path) {
-        return new File(GrimAPI.INSTANCE.getGrimPlugin().getDataFolder(), path);
+        File file = new File(GrimAPI.INSTANCE.getGrimPlugin().getDataFolder(), path);
+        File parent = file.getParentFile();
+        if (parent != null && !parent.exists()) {
+            parent.mkdirs();
+        }
+        return file;
     }
 
     /** Backend ids whose per-backend yml gets loaded + auto-updated alongside the user-facing files. */
@@ -53,7 +58,7 @@ public class ConfigManagerFileImpl implements ConfigManager, BasicReloadable {
         // Pass the same language Configuralize resolved (after its own
         // all-or-nothing availability check above) so a zh operator gets
         // ZH-comment bundled defaults stamped on disk to match.
-        String langCode = config.getLanguage().getCode().toLowerCase();
+        String langCode = config.getLanguage() != null ? config.getLanguage().getCode().toLowerCase() : "en";
         try {
             updater.updateAll(batch, langCode);
         } catch (Exception e) {
@@ -63,7 +68,9 @@ public class ConfigManagerFileImpl implements ConfigManager, BasicReloadable {
 
     @Override
     public void reload() {
-        GrimAPI.INSTANCE.getGrimPlugin().getDataFolder().mkdirs();
+        File dataFolder = GrimAPI.INSTANCE.getGrimPlugin().getDataFolder();
+        dataFolder.mkdirs();
+        new File(dataFolder, "databases").mkdirs();
         if (!initialized) {
             initialized = true;
             config.addSource(GrimAPI.class, "config", getConfigFile("config.yml"));

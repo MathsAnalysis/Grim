@@ -238,6 +238,17 @@ public class CompensatedInventory extends GrimProcessor implements PacketReceive
                 inventory.setHeldItem(null);
                 inventory.getInventoryStorage().handleClientClaimedSlotSet(Inventory.HOTBAR_OFFSET + player.packetStateData.lastSlotSelected);
             }
+
+            if (dig.getAction() == DiggingAction.SWAP_ITEM_WITH_OFFHAND) {
+                if (player.getClientVersion().isOlderThan(ClientVersion.V_1_9)) return;
+                int heldSlot = Inventory.HOTBAR_OFFSET + player.packetStateData.lastSlotSelected;
+                ItemStack held = inventory.getInventoryStorage().getItem(heldSlot);
+                ItemStack offhand = inventory.getInventoryStorage().getItem(Inventory.SLOT_OFFHAND);
+                inventory.getInventoryStorage().handleClientClaimedSlotSet(heldSlot);
+                inventory.getInventoryStorage().setItem(heldSlot, offhand);
+                inventory.getInventoryStorage().handleClientClaimedSlotSet(Inventory.SLOT_OFFHAND);
+                inventory.getInventoryStorage().setItem(Inventory.SLOT_OFFHAND, held);
+            }
         } else if (event.getPacketType() == PacketType.Play.Client.HELD_ITEM_CHANGE) {
             final int slot = new WrapperPlayClientHeldItemChange(event).getSlot();
 

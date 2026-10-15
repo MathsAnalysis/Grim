@@ -27,15 +27,13 @@ public class PacketPlayerTick extends PacketListenerAbstract {
             if (player == null || player.getClientVersion().isOlderThan(ClientVersion.V_1_21_2))
                 return;
 
-            PacketWorldBorder border = player.checkManager.get(PacketWorldBorder.class);
-            border.tickBorder();
+            player.checkManager.getPacketWorldBorder().tickBorder();
         } else if (WrapperPlayClientPlayerFlying.isFlying(event.getPacketType())) {
             GrimPlayer player = GrimAPI.INSTANCE.getPlayerDataManager().getPlayer(event.getUser());
             if (player == null || player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2))
                 return;
 
-            PacketWorldBorder border = player.checkManager.get(PacketWorldBorder.class);
-            border.tickBorder();
+            player.checkManager.getPacketWorldBorder().tickBorder();
         }
     }
 

@@ -29,6 +29,15 @@ public class BadPacketsU extends Check implements PreViaPacketReceiveListener {
         return player.getClientVersion().isOlderThanOrEquals(ClientVersion.V_1_8);
     }
 
+    private static final com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon[] HANDLED_PACKETS = new com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon[]{
+            PacketType.Play.Client.PLAYER_BLOCK_PLACEMENT
+    };
+
+    @Override
+    public com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon[] getHandledPacketTypes() {
+        return HANDLED_PACKETS;
+    }
+
     @Override
     public void onPreViaPacketReceive(@NotNull PacketReceiveEvent event) {
         if (event.getPacketType() != PacketType.Play.Client.PLAYER_BLOCK_PLACEMENT) return;

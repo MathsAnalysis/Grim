@@ -63,6 +63,16 @@ public class KillAura extends Check implements PacketReceiveListener {
         super(player);
     }
 
+    private static final com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon[] HANDLED_PACKETS = new com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon[]{
+            PacketType.Play.Client.ATTACK,
+            PacketType.Play.Client.INTERACT_ENTITY
+    };
+
+    @Override
+    public com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon[] getHandledPacketTypes() {
+        return HANDLED_PACKETS;
+    }
+
     @Override
     public void onPacketReceive(PacketReceiveEvent event) {
         if (!player.disableGrim) {

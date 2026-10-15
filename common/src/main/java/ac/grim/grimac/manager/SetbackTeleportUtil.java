@@ -310,6 +310,10 @@ public class SetbackTeleportUtil extends GrimProcessor implements PostPrediction
     }
 
     public TeleportAcceptData checkTeleportQueue(double x, double y, double z, float yaw, float pitch, @Nullable Integer teleportId) {
+        if (pendingTeleports.isEmpty()) {
+            return TeleportAcceptData.EMPTY;
+        }
+
         // Support teleports without teleport confirmations
         // If the player is in a vehicle when teleported, they will exit their vehicle
         TeleportAcceptData teleportData = new TeleportAcceptData();
