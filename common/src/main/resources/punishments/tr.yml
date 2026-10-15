@@ -105,6 +105,8 @@ Punishments:
       - "Aim"
       - "Killaura"
       - "AutoTotem"
+      - "AutoArmor"
+      - "AimAI"
       - "ESP"
     commands:
       - "20:40 [alert]"

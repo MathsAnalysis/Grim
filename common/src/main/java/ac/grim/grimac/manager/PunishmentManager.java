@@ -6,6 +6,7 @@ import ac.grim.grimac.api.config.ConfigManager;
 import ac.grim.grimac.api.config.ConfigReloadable;
 import ac.grim.grimac.api.event.events.CommandExecuteEvent;
 import ac.grim.grimac.checks.Check;
+import ac.grim.grimac.checks.impl.combat.AimAI;
 import ac.grim.grimac.events.packets.ProxyAlertMessenger;
 import ac.grim.grimac.platform.api.player.PlatformPlayer;
 import ac.grim.grimac.player.GrimPlayer;
@@ -39,14 +40,14 @@ public class PunishmentManager implements ConfigReloadable {
 
         alertString = config.getStringElse(
                 "alerts-format",
-                "%prefix% &f%player% &bfailed <hover:show_text:\"&b%check_name%%experimental%\\n&8Description: &f%description%\">&f%check_name%%experimental%</hover> &f(x&c%vl%&f) &7%verbose%"
+                "%prefix% &f%player% &bfailed <hover:show_text:\"&b%check_name%%experimental%\\n&8Description: &f%description%\\n&8Certainty: &b%certainty%\">&f%check_name%%experimental%</hover> &f(x&c%vl%&f) &7%verbose%"
         );
 
         testMode = config.getBooleanElse("test-mode", false);
 
         proxyAlertString = config.getStringElse(
                 "alerts-format-proxy",
-                "%prefix% &f[&cproxy&f] &f%player% &bfailed <hover:show_text:\"&b%check_name%%experimental%\\n&8Description: &f%description%\">&f%check_name%%experimental%</hover> &f(x&c%vl%&f) &7%verbose%"
+                "%prefix% &f[&cproxy&f] &f%player% &bfailed <hover:show_text:\"&b%check_name%%experimental%\\n&8Description: &f%description%\\n&8Certainty: &b%certainty%\">&f%check_name%%experimental%</hover> &f(x&c%vl%&f) &7%verbose%"
         );
 
         try {
@@ -109,7 +110,43 @@ public class PunishmentManager implements ConfigReloadable {
         }
     }
 
+    public static double calculateCertainty(GrimPlayer player, Check check, int vl) {
+        if (check instanceof AimAI aimAI) {
+            double s = aimAI.getLatestScore();
+            if (s > 0.0) return Math.min(1.0, Math.max(0.0, s));
+        }
+
+        double mlCombatScore = getMlScore(player);
+
+        if (check.isExperimental()) {
+            double expCertainty = 0.70 + (0.25 * (1.0 - Math.exp(-vl / 4.0)));
+            return Math.max(mlCombatScore, Math.min(0.95, expCertainty));
+        }
+
+        double baseCertainty = 0.88 + (0.119 * (1.0 - Math.exp(-vl / 2.5)));
+        return Math.max(mlCombatScore, Math.min(0.999, baseCertainty));
+    }
+
+    public static double getMlScore(GrimPlayer player) {
+        if (player == null) return 0.0;
+        try {
+            AimAI ai = player.checkManager.get(AimAI.class);
+            if (ai != null) {
+                return ai.getLatestScore();
+            }
+        } catch (Exception ignored) {}
+        return 0.0;
+    }
+
     private String replaceAlertPlaceholders(String original, int vl, Check check, String verbose) {
+        double certainty = calculateCertainty(player, check, vl);
+        double mlScore = getMlScore(player);
+        String certaintyPct = String.format(Locale.ROOT, "%.1f%%", certainty * 100.0);
+        String certaintyColored = (certainty >= 0.90 ? "&c" : certainty >= 0.75 ? "&e" : "&a") + certaintyPct;
+        String certaintyInt = Math.round(certainty * 100.0) + "%";
+        String scorePct = String.format(Locale.ROOT, "%.1f%%", (check instanceof AimAI ? certainty : (mlScore > 0.0 ? mlScore : certainty)) * 100.0);
+        String mlScorePct = String.format(Locale.ROOT, "%.1f%%", mlScore * 100.0);
+
         return MessageUtil.replacePlaceholders(player, original
                 .replace("[alert]", alertString)
                 .replace("[proxy]", proxyAlertString)
@@ -118,6 +155,12 @@ public class PunishmentManager implements ConfigReloadable {
                 .replace("%vl%", Integer.toString(vl))
                 .replace("%description%", check.getDescription())
                 .replace("%stable_key%", check.getStableKey())
+                .replace("%certainty%", certaintyPct)
+                .replace("%certainty_colored%", certaintyColored)
+                .replace("%certainty_int%", certaintyInt)
+                .replace("%score%", scorePct)
+                .replace("%score_int%", certaintyInt)
+                .replace("%ml_score%", mlScorePct)
         ).replace("%verbose%", MessageUtil.miniMessageSafe(verbose));
     }
 
@@ -161,7 +204,7 @@ public class PunishmentManager implements ConfigReloadable {
                             if (canceled) continue;
 
                             switch (command.command) {
-                                case "[webhook]" -> GrimAPI.INSTANCE.getDiscordManager().sendAlert(player, renderedVerbose, check.getDisplayName(), vl);
+                                case "[webhook]" -> GrimAPI.INSTANCE.getDiscordManager().sendAlert(player, renderedVerbose, check, vl);
                                 case "[log]" -> {
                                     // Binary flags already stored a row; avoid an extra legacy text row.
                                     if (!check.isLastFlagStoredBinaryVerbose()) {
