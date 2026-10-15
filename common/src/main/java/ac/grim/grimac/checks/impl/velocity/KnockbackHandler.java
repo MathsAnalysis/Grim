@@ -12,6 +12,7 @@ import ac.grim.grimac.utils.data.Pair;
 import ac.grim.grimac.utils.data.VectorData;
 import ac.grim.grimac.utils.data.VelocityData;
 import ac.grim.grimac.utils.math.Vector3dm;
+import ac.grim.grimac.utils.nmsutil.Collisions;
 import com.github.retrooper.packetevents.event.PacketSendEvent;
 import com.github.retrooper.packetevents.protocol.packettype.PacketType;
 import com.github.retrooper.packetevents.util.Vector3d;
@@ -175,7 +176,7 @@ public class KnockbackHandler extends Check implements PacketSendListener, PostP
             return;
         }
 
-        if (player.compensatedWorld.isClimbing(player)) {
+        if (player.isClimbing || Collisions.onClimbable(player, player.x, player.y, player.z)) {
             forceExempt();
             return;
         }
