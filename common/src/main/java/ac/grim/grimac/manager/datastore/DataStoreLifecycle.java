@@ -578,11 +578,28 @@ public final class DataStoreLifecycle implements StartableInitable, StoppableIni
         }
 
         VerboseRegistry manifestRegistry = this.verboseRegistry;
-        java.util.function.Supplier<byte[]> verboseManifest = () -> manifestRegistry == null
-                ? VerboseManifest.textOnly(VerboseManifest.FLAVOR_V2_PUBLIC)
-                : VerboseManifest.encode(
-                        VerboseManifest.FLAVOR_V2_PUBLIC,
-                        manifestRegistry.checkIdVersions(checkRegistry));
+        final java.util.concurrent.atomic.AtomicReference<byte[]> cachedManifest = new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.function.Supplier<byte[]> verboseManifest = () -> {
+            byte[] cached = cachedManifest.get();
+            if (cached != null) return cached;
+            synchronized (cachedManifest) {
+                cached = cachedManifest.get();
+                if (cached != null) return cached;
+                byte[] encoded;
+                try {
+                    encoded = manifestRegistry == null
+                            ? VerboseManifest.textOnly(VerboseManifest.FLAVOR_V2_PUBLIC)
+                            : VerboseManifest.encode(
+                                    VerboseManifest.FLAVOR_V2_PUBLIC,
+                                    manifestRegistry.checkIdVersions(checkRegistry));
+                } catch (Exception e) {
+                    logger.log(Level.WARNING, "[grim-datastore] failed to encode verbose manifest", e);
+                    encoded = VerboseManifest.textOnly(VerboseManifest.FLAVOR_V2_PUBLIC);
+                }
+                cachedManifest.set(encoded);
+                return encoded;
+            }
+        };
         ServerOwnershipMetadata metadata = new ServerOwnershipMetadata(
                 config.serverName(),
                 hostname(),
@@ -666,11 +683,15 @@ public final class DataStoreLifecycle implements StartableInitable, StoppableIni
             heartbeatScheduler.start();
         }
         if (manifestRegistry != null) {
-            if (ownershipHeartbeatScheduler != null) {
-                manifestRegistry.onChange(ownershipHeartbeatScheduler::publishNowAndWait);
-            } else if (heartbeatScheduler != null) {
-                manifestRegistry.onChange(heartbeatScheduler::publishNowAndWait);
-            }
+            Runnable onManifestChange = () -> {
+                cachedManifest.set(null);
+                if (ownershipHeartbeatScheduler != null) {
+                    ownershipHeartbeatScheduler.publishNowAndWait();
+                } else if (heartbeatScheduler != null) {
+                    heartbeatScheduler.publishNowAndWait();
+                }
+            };
+            manifestRegistry.onChange(onManifestChange);
         }
         startRecoverySweep();
         return claim;
