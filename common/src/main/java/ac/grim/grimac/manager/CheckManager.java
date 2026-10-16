@@ -151,6 +151,8 @@ public class CheckManager implements BasicReloadable {
                 .put(KillAura.class, new KillAura(player))
                 .put(AutoTotem.class, new AutoTotem(player))
                 .put(AutoArmor.class, new AutoArmor(player))
+                .put(AutoCrystalA.class, new AutoCrystalA(player))
+                .put(AutoCrystalB.class, new AutoCrystalB(player))
                 .put(AimAI.class, new AimAI(player))
                 .put(AntiESP.class, new AntiESP(player))
                 .put(PacketEntityReplication.class, player.packetEntityReplication)

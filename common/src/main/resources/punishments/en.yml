@@ -112,6 +112,7 @@ Punishments:
       - "Killaura"
       - "AutoTotem"
       - "AutoArmor"
+      - "AutoCrystal"
       - "AimAI"
       - "ESP"
     commands:
