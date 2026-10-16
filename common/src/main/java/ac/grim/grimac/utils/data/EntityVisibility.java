@@ -69,6 +69,7 @@ public class EntityVisibility {
     private boolean enabled;
     private int cursor;
     private int raysLeft;
+    private int hiddenCount;
 
     public EntityVisibility(GrimPlayer player) {
         this.player = player;
@@ -77,8 +78,14 @@ public class EntityVisibility {
     public boolean onPlayerSpawn(int entityId, UUID uuid, boolean legacySpawn, List<EntityData<?>> metadata) {
         TrackedPlayer tracked = new TrackedPlayer(entityId, uuid, legacySpawn, enabled);
         if (metadata != null) mergeMetadata(tracked.metadata, metadata);
-        players.put(entityId, tracked);
+        TrackedPlayer previous = players.put(entityId, tracked);
+        if (previous != null && previous.hidden) hiddenCount--;
+        if (tracked.hidden) hiddenCount++;
         return tracked.hidden;
+    }
+
+    public boolean hasHiddenEntities() {
+        return hiddenCount > 0;
     }
 
     public boolean isHidden(int entityId) {
@@ -101,7 +108,8 @@ public class EntityVisibility {
     }
 
     public void onDestroy(int entityId) {
-        players.remove(entityId);
+        TrackedPlayer removed = players.remove(entityId);
+        if (removed != null && removed.hidden) hiddenCount--;
     }
 
     public void tick() {
@@ -113,6 +121,7 @@ public class EntityVisibility {
             if (enabled) {
                 revealAll();
                 players.clear();
+                hiddenCount = 0;
             }
             enabled = false;
             return;
@@ -229,6 +238,7 @@ public class EntityVisibility {
     private void hide(TrackedPlayer tracked) {
         player.user.sendPacketSilently(new WrapperPlayServerDestroyEntities(tracked.entityId));
         tracked.hidden = true;
+        hiddenCount++;
         tracked.blockedChecks = 0;
     }
 
@@ -253,6 +263,7 @@ public class EntityVisibility {
             player.user.sendPacketSilently(new WrapperPlayServerEntityEquipment(tracked.entityId, new ArrayList<>(tracked.equipment)));
         }
 
+        if (tracked.hidden) hiddenCount--;
         tracked.hidden = false;
         tracked.blockedChecks = 0;
     }
