@@ -1,5 +1,6 @@
 package ac.grim.grimac.checks.impl.combat;
 
+import ac.grim.grimac.GrimAPI;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 import ac.grim.grimac.checks.Check;
 import ac.grim.grimac.checks.CheckData;
@@ -7,11 +8,9 @@ import ac.grim.grimac.checks.type.PacketReceiveListener;
 import ac.grim.grimac.checks.type.PacketSendListener;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.inventory.EquipmentType;
-import ac.grim.grimac.utils.inventory.Inventory;
-import ac.grim.grimac.utils.lists.CorrectingPlayerInventoryStorage;
+import ac.grim.grimac.utils.math.Location;
 import com.github.retrooper.packetevents.event.PacketReceiveEvent;
 import com.github.retrooper.packetevents.event.PacketSendEvent;
-import com.github.retrooper.packetevents.protocol.item.HashedStack;
 import com.github.retrooper.packetevents.protocol.item.ItemStack;
 import com.github.retrooper.packetevents.protocol.item.type.ItemTypes;
 import com.github.retrooper.packetevents.protocol.packettype.PacketType;
@@ -31,29 +30,38 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
 @CheckData(name = "AutoArmor", stableKey = "grim.combat.autoarmor", description = "Detects unfair automated armor equipping", experimental = false)
 public class AutoArmor extends Check implements PacketReceiveListener, PacketSendListener {
     private static final Verbose V_CONCURRENT = Verbose.of("action={str}");
     private static final Verbose V_ROTATION = Verbose.of("deltaRot={f64:%.2f}");
-    private static final Verbose V_SPEED = Verbose.of("distinctTypes={uint}, duration={ulong}ms");
+    private static final Verbose V_SPEED = Verbose.of("distinctTypes={uint}, ticks={uint}");
 
-    private record EquipRecord(EquipmentType type, int slot, long timestamp, int tick) {}
+    private static final int NEVER = -1_000_000;
+    private static final int ATTACK_WINDOW_TICKS = 3;
+    private static final int ROTATION_WINDOW_TICKS = 2;
+    private static final int MINING_TIMEOUT_TICKS = 60;
+    private static final int HISTORY_TICKS = 24;
+    private static final float SIGNIFICANT_ROTATION = 3.0f;
+    private static final double BUFFER_LIMIT = 3.0;
+    private static final double BUFFER_DECAY_PER_TICK = 0.05;
+
+    private record EquipRecord(EquipmentType type, int tick) {}
 
     private int tick;
-    private long lastAttackTime;
-    private boolean isMining;
+    private int lastAttackTick = NEVER;
+    private int miningStartTick = NEVER;
 
     private boolean initializedLook;
     private float lastYaw;
     private float lastPitch;
-    private long lastSignificantRotationTime;
+    private int lastSignificantRotationTick = NEVER;
     private double lastDeltaRot;
-    private double rotBuffer;
-    private double fastPairBuffer;
 
-    private int lastSlotClicked = -1;
+    private double rotBuffer;
+    private double miningBuffer;
+    private double pairBuffer;
+
     private final List<EquipRecord> recentEquips = new ArrayList<>();
 
     public AutoArmor(GrimPlayer player) {
@@ -82,42 +90,25 @@ public class AutoArmor extends Check implements PacketReceiveListener, PacketSen
         if (player.disableGrim) return;
         if (player.gamemode == GameMode.SPECTATOR) return;
 
+        advanceTick();
+
         final PacketTypeCommon packetType = event.getPacketType();
-        final long now = System.currentTimeMillis();
 
         if (packetType == PacketType.Play.Client.PLAYER_ROTATION
                 || packetType == PacketType.Play.Client.PLAYER_POSITION_AND_ROTATION) {
-            WrapperPlayClientPlayerFlying flying = new WrapperPlayClientPlayerFlying(event);
-            float yaw = flying.getLocation().getYaw();
-            float pitch = flying.getLocation().getPitch();
-
-            if (initializedLook && !player.inVehicle() && !player.uncertaintyHandler.lastTeleportTicks.hasOccurredSince(3)) {
-                float deltaYaw = Math.abs(yaw - lastYaw);
-                float deltaPitch = Math.abs(pitch - lastPitch);
-                if (deltaYaw > 3.0f || deltaPitch > 3.0f) {
-                    lastSignificantRotationTime = now;
-                    lastDeltaRot = Math.max(deltaYaw, deltaPitch);
-                }
-            }
-            lastYaw = yaw;
-            lastPitch = pitch;
-            initializedLook = true;
-        }
-
-        if (isTickPacket(packetType)) {
-            tick++;
+            trackRotation(new WrapperPlayClientPlayerFlying(event));
             return;
         }
 
         if (packetType == PacketType.Play.Client.ATTACK) {
-            lastAttackTime = now;
+            lastAttackTick = tick;
             return;
         }
 
         if (packetType == PacketType.Play.Client.INTERACT_ENTITY) {
             WrapperPlayClientInteractEntity interact = new WrapperPlayClientInteractEntity(event);
             if (interact.getAction() == WrapperPlayClientInteractEntity.InteractAction.ATTACK) {
-                lastAttackTime = now;
+                lastAttackTick = tick;
             }
             return;
         }
@@ -126,24 +117,19 @@ public class AutoArmor extends Check implements PacketReceiveListener, PacketSen
             WrapperPlayClientPlayerDigging digging = new WrapperPlayClientPlayerDigging(event);
             DiggingAction action = digging.getAction();
             if (action == DiggingAction.START_DIGGING) {
-                isMining = true;
+                miningStartTick = player.gamemode == GameMode.CREATIVE ? NEVER : tick;
             } else if (action == DiggingAction.CANCELLED_DIGGING || action == DiggingAction.FINISHED_DIGGING) {
-                isMining = false;
+                miningStartTick = NEVER;
             }
             return;
         }
 
         if (packetType == PacketType.Play.Client.CLICK_WINDOW) {
             WrapperPlayClientClickWindow click = new WrapperPlayClientClickWindow(event);
-
-            EquipmentType targetType = getTargetArmorType(click);
-            if (targetType == null) {
-                lastSlotClicked = click.getSlot();
-                return;
+            int armorSlot = findEquippedArmorSlot(click);
+            if (armorSlot != -1) {
+                handleArmorEquip(getArmorTypeForSlot(armorSlot), true);
             }
-
-            handleArmorEquip(event, targetType, click.getSlot());
-            lastSlotClicked = click.getSlot();
             return;
         }
 
@@ -163,177 +149,126 @@ public class AutoArmor extends Check implements PacketReceiveListener, PacketSen
             }
             if (held != null && !held.isEmpty() && held.getType() != ItemTypes.AIR) {
                 EquipmentType eq = EquipmentType.getEquipmentSlotForItem(held);
-                if (eq != null && eq.isArmor()) {
-                    int slot = useItem.getHand() == InteractionHand.MAIN_HAND
-                            ? Inventory.HOTBAR_OFFSET + player.inventory.inventory.getSelected()
-                            : Inventory.SLOT_OFFHAND;
-                    handleArmorEquip(event, eq, slot);
-                    lastSlotClicked = slot;
+                if (eq.isArmor()) {
+                    handleArmorEquip(eq, false);
                 }
             }
         }
     }
 
-    private void handleArmorEquip(PacketReceiveEvent event, EquipmentType targetType, int slot) {
-        final long now = System.currentTimeMillis();
-
-        recentEquips.removeIf(e -> (now - e.timestamp) > 1200L);
-
-        if (!recentEquips.isEmpty()) {
-            EquipRecord last = recentEquips.get(recentEquips.size() - 1);
-            if (slot == lastSlotClicked || last.type() == targetType) {
-                return;
-            }
+    private void advanceTick() {
+        int now = GrimAPI.INSTANCE.getTickManager().currentTick;
+        int elapsed = now - tick;
+        if (elapsed > 0) {
+            double decay = elapsed * BUFFER_DECAY_PER_TICK;
+            rotBuffer = Math.max(0.0, rotBuffer - decay);
+            miningBuffer = Math.max(0.0, miningBuffer - decay);
+            pairBuffer = Math.max(0.0, pairBuffer - decay);
         }
-
-        if ((now - lastAttackTime) <= 150L) {
-            flagAndCancel(event, V_CONCURRENT.write(verbose()).str("attack"));
-            return;
-        }
-
-        if (isMining) {
-            flagAndCancel(event, V_CONCURRENT.write(verbose()).str("digging"));
-            return;
-        }
-
-        if ((now - lastSignificantRotationTime) <= 120L && !player.inVehicle() && !player.uncertaintyHandler.lastTeleportTicks.hasOccurredSince(3)) {
-            rotBuffer += 1.0;
-            if (rotBuffer >= 2.0) {
-                flagAndCancel(event, V_ROTATION.write(verbose()).f64(lastDeltaRot));
-                return;
-            }
-        } else {
-            rotBuffer = Math.max(0, rotBuffer - 0.25);
-        }
-
-        if (!recentEquips.isEmpty()) {
-            EquipRecord prev = recentEquips.get(recentEquips.size() - 1);
-            if (prev.type() != targetType) {
-                long delay = now - prev.timestamp();
-                if (delay <= 45L || prev.tick() == tick) {
-                    fastPairBuffer += 1.0;
-                    if (fastPairBuffer >= 1.0) {
-                        flagAndCancel(event, V_SPEED.write(verbose()).uint(2).ulong(delay));
-                        return;
-                    }
-                } else {
-                    fastPairBuffer = Math.max(0, fastPairBuffer - 0.5);
-                }
-            }
-        }
-
-        recentEquips.add(new EquipRecord(targetType, slot, now, tick));
-
-        Set<EquipmentType> distinctThisTick = EnumSet.noneOf(EquipmentType.class);
-        for (EquipRecord record : recentEquips) {
-            if (record.tick() == tick || (now - record.timestamp) <= 60L) {
-                distinctThisTick.add(record.type());
-            }
-        }
-        if (distinctThisTick.size() >= 3) {
-            flagAndCancel(event, V_SPEED.write(verbose()).uint(distinctThisTick.size()).ulong(0L));
-            return;
-        }
-
-        Set<EquipmentType> distinctPieces = EnumSet.noneOf(EquipmentType.class);
-        for (EquipRecord record : recentEquips) {
-            distinctPieces.add(record.type());
-        }
-
-        if (distinctPieces.size() >= 4 && recentEquips.size() >= 4) {
-            long fourPieceDuration = now - recentEquips.get(recentEquips.size() - 4).timestamp();
-            if (fourPieceDuration < 320L) {
-                flagAndCancel(event, V_SPEED.write(verbose()).uint(4).ulong(fourPieceDuration));
-                return;
-            }
-        }
-
-        if (distinctPieces.size() >= 3 && recentEquips.size() >= 3) {
-            long threePieceDuration = now - recentEquips.get(recentEquips.size() - 3).timestamp();
-            if (threePieceDuration < 180L) {
-                flagAndCancel(event, V_SPEED.write(verbose()).uint(3).ulong(threePieceDuration));
-            }
-        }
+        tick = now;
     }
 
-    private EquipmentType getTargetArmorType(WrapperPlayClientClickWindow click) {
-        if (click.getWindowId() != 0) return null;
+    private void trackRotation(WrapperPlayClientPlayerFlying flying) {
+        float yaw = flying.getLocation().getYaw();
+        float pitch = flying.getLocation().getPitch();
 
-        int slot = click.getSlot();
-
-        if (slot >= 5 && slot <= 8) {
-            return getArmorTypeForSlot(slot);
-        }
-
-        if (click.getWindowClickType() == WrapperPlayClientClickWindow.WindowClickType.QUICK_MOVE) {
-            ItemStack inSlot = null;
-            if (slot >= 0 && slot < player.inventory.menu.getSlots().size()) {
-                inSlot = player.inventory.menu.getSlot(slot).getItem();
-            }
-            if ((inSlot == null || inSlot.isEmpty() || inSlot.getType() == ItemTypes.AIR) && player.platformPlayer != null) {
-                int bukkitSlot = CorrectingPlayerInventoryStorage.getBukkitSlot(slot);
-                if (bukkitSlot != -1) {
-                    try {
-                        inSlot = player.platformPlayer.getInventory().getStack(bukkitSlot, slot);
-                    } catch (Exception ignored) {}
-                }
-            }
-            if (inSlot != null && !inSlot.isEmpty() && inSlot.getType() != ItemTypes.AIR) {
-                EquipmentType type = EquipmentType.getEquipmentSlotForItem(inSlot);
-                if (type.isArmor()) {
-                    return type;
-                }
+        if (initializedLook && !player.inVehicle() && !player.uncertaintyHandler.lastTeleportTicks.hasOccurredSince(3)) {
+            float deltaYaw = Math.abs(Location.normalizeYaw(yaw - lastYaw));
+            float deltaPitch = Math.abs(pitch - lastPitch);
+            if (deltaYaw > SIGNIFICANT_ROTATION || deltaPitch > SIGNIFICANT_ROTATION) {
+                lastSignificantRotationTick = tick;
+                lastDeltaRot = Math.max(deltaYaw, deltaPitch);
             }
         }
+        lastYaw = yaw;
+        lastPitch = pitch;
+        initializedLook = true;
+    }
 
-        if (click.getWindowClickType() == WrapperPlayClientClickWindow.WindowClickType.SWAP) {
-            if (slot >= 5 && slot <= 8) {
-                return getArmorTypeForSlot(slot);
+    private void handleArmorEquip(EquipmentType targetType, boolean inventory) {
+        recentEquips.removeIf(record -> tick - record.tick() > HISTORY_TICKS);
+
+        if (!recentEquips.isEmpty() && recentEquips.get(recentEquips.size() - 1).type() == targetType) {
+            return;
+        }
+
+        if (inventory) {
+            if (tick - lastAttackTick <= ATTACK_WINDOW_TICKS) {
+                flag(V_CONCURRENT.write(verbose()).str("attack"));
+                return;
             }
-            int button = click.getButton();
-            if (button >= 0 && button <= 8) {
-                int hotbarSlot = Inventory.HOTBAR_OFFSET + button;
-                ItemStack hotbarItem = null;
-                if (hotbarSlot < player.inventory.menu.getSlots().size()) {
-                    hotbarItem = player.inventory.menu.getSlot(hotbarSlot).getItem();
+
+            if (tick - miningStartTick <= MINING_TIMEOUT_TICKS) {
+                miningBuffer += 1.0;
+                if (miningBuffer >= BUFFER_LIMIT) {
+                    flag(V_CONCURRENT.write(verbose()).str("digging"));
+                    return;
                 }
-                if (hotbarItem != null && !hotbarItem.isEmpty() && hotbarItem.getType() != ItemTypes.AIR) {
-                    EquipmentType type = EquipmentType.getEquipmentSlotForItem(hotbarItem);
-                    if (type.isArmor()) {
-                        return type;
-                    }
+            }
+
+            if (tick - lastSignificantRotationTick <= ROTATION_WINDOW_TICKS && !player.inVehicle() && !player.uncertaintyHandler.lastTeleportTicks.hasOccurredSince(3)) {
+                rotBuffer += 1.0;
+                if (rotBuffer >= BUFFER_LIMIT) {
+                    flag(V_ROTATION.write(verbose()).f64(lastDeltaRot));
+                    return;
                 }
             }
         }
 
-        Optional<Map<Integer, ItemStack>> slots = click.getSlots();
-        if (slots.isPresent()) {
-            Map<Integer, ItemStack> slotMap = slots.get();
-            for (int s = 5; s <= 8; s++) {
-                if (slotMap.containsKey(s)) {
-                    return getArmorTypeForSlot(s);
-                }
+        if (!recentEquips.isEmpty() && recentEquips.get(recentEquips.size() - 1).tick() == tick) {
+            pairBuffer += 1.0;
+            if (pairBuffer >= BUFFER_LIMIT) {
+                flag(V_SPEED.write(verbose()).uint(2).uint(1));
+                return;
             }
         }
 
-        Map<Integer, Optional<HashedStack>> hashedSlots = click.getHashedSlots();
-        if (hashedSlots != null) {
-            for (int s = 5; s <= 8; s++) {
-                if (hashedSlots.containsKey(s)) {
-                    return getArmorTypeForSlot(s);
-                }
-            }
+        int typesThisTick = distinctWithin(0, targetType);
+        if (typesThisTick >= 3) {
+            flag(V_SPEED.write(verbose()).uint(typesThisTick).uint(1));
+            return;
         }
 
-        ItemStack carried = click.getCarriedItemStack();
-        if (carried != null && !carried.isEmpty() && carried.getType() != ItemTypes.AIR) {
-            EquipmentType type = EquipmentType.getEquipmentSlotForItem(carried);
-            if (type.isArmor() && slot >= 5 && slot <= 8) {
-                return type;
-            }
+        int typesWithinTwoTicks = distinctWithin(1, targetType);
+        if (typesWithinTwoTicks >= 3) {
+            flag(V_SPEED.write(verbose()).uint(typesWithinTwoTicks).uint(2));
+            return;
         }
 
-        return null;
+        int typesWithinFourTicks = distinctWithin(3, targetType);
+        if (typesWithinFourTicks >= 4) {
+            flag(V_SPEED.write(verbose()).uint(typesWithinFourTicks).uint(4));
+            return;
+        }
+
+        recentEquips.add(new EquipRecord(targetType, tick));
+    }
+
+    private int distinctWithin(int ticks, EquipmentType current) {
+        EnumSet<EquipmentType> types = EnumSet.of(current);
+        for (EquipRecord record : recentEquips) {
+            if (tick - record.tick() <= ticks) {
+                types.add(record.type());
+            }
+        }
+        return types.size();
+    }
+
+    private static int findEquippedArmorSlot(WrapperPlayClientClickWindow click) {
+        if (click.getWindowId() != 0) return -1;
+
+        Optional<Map<Integer, ItemStack>> changed = click.getSlots();
+        if (changed.isEmpty()) return -1;
+
+        Map<Integer, ItemStack> slots = changed.get();
+        for (int slot = 5; slot <= 8; slot++) {
+            ItemStack stack = slots.get(slot);
+            if (stack == null || stack.isEmpty() || stack.getType() == ItemTypes.AIR) continue;
+            if (EquipmentType.getEquipmentSlotForItem(stack) == getArmorTypeForSlot(slot)) {
+                return slot;
+            }
+        }
+        return -1;
     }
 
     private static EquipmentType getArmorTypeForSlot(int slot) {
@@ -346,23 +281,15 @@ public class AutoArmor extends Check implements PacketReceiveListener, PacketSen
         };
     }
 
-    private void flagAndCancel(PacketReceiveEvent event, Verbose.Writer verbose) {
-        if (flag(verbose) && shouldModifyPackets()) {
-            event.setCancelled(true);
-            player.onPacketCancel();
-            player.inventory.needResend = true;
-        }
-    }
-
     private void resetTracking() {
-        tick = 0;
-        lastAttackTime = 0;
-        isMining = false;
-        lastSignificantRotationTime = 0;
+        lastAttackTick = NEVER;
+        miningStartTick = NEVER;
+        initializedLook = false;
+        lastSignificantRotationTick = NEVER;
         lastDeltaRot = 0;
         rotBuffer = 0;
-        fastPairBuffer = 0;
-        lastSlotClicked = -1;
+        miningBuffer = 0;
+        pairBuffer = 0;
         recentEquips.clear();
     }
 }
