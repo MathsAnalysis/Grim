@@ -13,90 +13,109 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
-@CheckData(name = "Simulation", stableKey = "grim.prediction.simulation", description = "Moved differently than predicted movement simulation", decay = 0.02)
+@CheckData(
+        name = "Simulation",
+        stableKey = "grim.prediction.simulation",
+        description = "Moved differently than predicted movement simulation",
+        decay = 0.02
+)
 public class OffsetHandler extends Check implements PostPredictionListener {
-    private static final Verbose V = Verbose.of("{offset}");
 
-    private static final AtomicInteger flags = new AtomicInteger(0);
-    // Config
+    private static final Verbose V = Verbose.of("{offset}");
+    private static final CompletePredictionEvent.Channel COMPLETE_CHANNEL = GrimAPI.INSTANCE.getEventBus().get(CompletePredictionEvent.class);
+
+    private static final AtomicInteger FLAG_COUNTER = new AtomicInteger(0);
+
+    private static final double MIN_ADVANTAGE_EPSILON = 1.0E-5;
+    private static final double MAX_LENIENCE_CAP = 1.0;
+
     private double setbackDecayMultiplier;
     private double threshold;
     private double immediateSetbackThreshold;
     private double maxAdvantage;
     private double maxCeiling;
     private double setbackViolationThreshold;
-    // Current advantage gained
-    private double advantageGained = 0;
-    private static final CompletePredictionEvent.Channel COMPLETE_CHANNEL = GrimAPI.INSTANCE.getEventBus().get(CompletePredictionEvent.class);
+
+    private double advantageGained = 0.0;
 
     public OffsetHandler(GrimPlayer player) {
         super(player);
     }
 
+    @Override
     public void onPredictionComplete(final PredictionComplete predictionComplete) {
-        if (!predictionComplete.isChecked()) return;
-
-        double offset = predictionComplete.getOffset();
-
-        if (COMPLETE_CHANNEL.fire(player, this, offset)) return;
-
-        if ((offset >= threshold || offset >= immediateSetbackThreshold)) {
-            advantageGained += offset;
-            giveOffsetLenienceNextTick(offset);
-
-            synchronized (flags) {
-                int flagId = (flags.get() & 255) + 1; // 1-256 as possible values
-
-                if (flag(V.write(verbose()).f64(offset), () -> humanFormattedOffset(offset) + " /gl " + flagId)) {
-                    flags.incrementAndGet();
-                    predictionComplete.setIdentifier(flagId);
-
-                    if ((advantageGained >= maxAdvantage || offset >= immediateSetbackThreshold)
-                            && !isNoSetbackPermission()
-                            && violations >= setbackViolationThreshold) {
-                        player.getSetbackTeleportUtil().executeViolationSetback();
-                    }
-                }
-            }
-
-            advantageGained = Math.min(advantageGained, maxCeiling);
-        } else {
-            advantageGained *= setbackDecayMultiplier;
+        if (!predictionComplete.isChecked()) {
+            return;
         }
 
-        removeOffsetLenience();
+        final double offset = predictionComplete.getOffset();
+
+        if (Double.isNaN(offset) || Double.isInfinite(offset) || offset <= 0.0) {
+            decayAdvantage();
+            return;
+        }
+
+        if (COMPLETE_CHANNEL.fire(player, this, offset)) {
+            return;
+        }
+
+        if (player.getSetbackTeleportUtil().hasPendingSetback()) {
+            removeOffsetLenience();
+            return;
+        }
+
+        if (offset >= threshold || offset >= immediateSetbackThreshold) {
+            handleViolation(predictionComplete, offset);
+        } else {
+            decayAdvantage();
+            removeOffsetLenience();
+        }
     }
 
-    public static String humanFormattedOffset(double offset) {
-        String humanFormattedOffset;
-        if (offset < 0.001) { // 1.129E-3
-            humanFormattedOffset = String.format("%.4E", offset);
-            // Squeeze out an extra digit here by E-03 to E-3
-            humanFormattedOffset = humanFormattedOffset.replace("E-0", "E-");
-        } else {
-            // 0.00112945678 -> .001129
-            humanFormattedOffset = String.format("%6f", offset);
-            // I like the leading zero, but removing it lets us add another digit to the end
-            humanFormattedOffset = humanFormattedOffset.replace("0.", ".");
+    private void handleViolation(final PredictionComplete predictionComplete, final double offset) {
+        advantageGained = Math.min(advantageGained + offset, maxCeiling);
+
+        giveOffsetLenienceNextTick(offset);
+
+        final int flagId = (FLAG_COUNTER.getAndIncrement() & 0xFF) + 1;
+
+        final boolean flagged = flag(
+                V.write(verbose()).f64(offset),
+                () -> humanFormattedOffset(offset) + " /gl " + flagId
+        );
+
+        if (flagged) {
+            predictionComplete.setIdentifier(flagId);
+
+            final boolean shouldSetback = (advantageGained >= maxAdvantage || offset >= immediateSetbackThreshold)
+                    && !isNoSetbackPermission()
+                    && violations >= setbackViolationThreshold;
+
+            if (shouldSetback) {
+                advantageGained = 0.0;
+                removeOffsetLenience();
+                player.getSetbackTeleportUtil().executeViolationSetback();
+            }
         }
-        return humanFormattedOffset;
+    }
+
+    private void decayAdvantage() {
+        advantageGained *= setbackDecayMultiplier;
+        if (advantageGained < MIN_ADVANTAGE_EPSILON) {
+            advantageGained = 0.0;
+        }
     }
 
     private void giveOffsetLenienceNextTick(double offset) {
-        // Don't let players carry more than 1 offset into the next tick
-        // (I was seeing cheats try to carry 1,000,000,000 offset into the next tick!)
-        //
-        // This value so that setting back with high ping doesn't allow players to gather high client velocity
-        double minimizedOffset = Math.min(offset, 1);
+        double minimizedOffset = Math.min(offset, MAX_LENIENCE_CAP);
 
-        // Normalize offsets
         player.uncertaintyHandler.lastHorizontalOffset = minimizedOffset;
         player.uncertaintyHandler.lastVerticalOffset = minimizedOffset;
     }
 
     private void removeOffsetLenience() {
-        player.uncertaintyHandler.lastHorizontalOffset = 0;
-        player.uncertaintyHandler.lastVerticalOffset = 0;
+        player.uncertaintyHandler.lastHorizontalOffset = 0.0;
+        player.uncertaintyHandler.lastVerticalOffset = 0.0;
     }
 
     @Override
@@ -104,14 +123,26 @@ public class OffsetHandler extends Check implements PostPredictionListener {
         setbackDecayMultiplier = config.getDoubleElse("Simulation.setback-decay-multiplier", 0.999);
         threshold = config.getDoubleElse("Simulation.threshold", 0.001);
         immediateSetbackThreshold = config.getDoubleElse("Simulation.immediate-setback-threshold", 0.1);
-        maxAdvantage = config.getDoubleElse("Simulation.max-advantage", 1);
-        maxCeiling = config.getDoubleElse("Simulation.max-ceiling", 4);
-        setbackViolationThreshold = config.getDoubleElse("Simulation.setback-violation-threshold", 1);
-        if (maxAdvantage == -1) maxAdvantage = Double.MAX_VALUE;
-        if (immediateSetbackThreshold == -1) immediateSetbackThreshold = Double.MAX_VALUE;
+        maxAdvantage = config.getDoubleElse("Simulation.max-advantage", 1.0);
+        maxCeiling = config.getDoubleElse("Simulation.max-ceiling", 4.0);
+        setbackViolationThreshold = config.getDoubleElse("Simulation.setback-violation-threshold", 1.0);
+
+        if (maxAdvantage == -1.0) maxAdvantage = Double.MAX_VALUE;
+        if (immediateSetbackThreshold == -1.0) immediateSetbackThreshold = Double.MAX_VALUE;
+
+        advantageGained = 0.0;
     }
 
     public boolean doesOffsetFlag(double offset) {
         return offset >= threshold;
     }
+
+    public static String humanFormattedOffset(double offset) {
+        if (offset < 0.001) {
+            String str = String.format(java.util.Locale.ROOT, "%.4E", offset);
+            return str.replace("E-0", "E-");
+        }
+        return String.format(java.util.Locale.ROOT, "%.6f", offset);
+    }
 }
+
