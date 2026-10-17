@@ -24,33 +24,28 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Set;
 
-/**
- * Performance & Memory Optimizations:
- * 1. Zero-Allocation BFS: Replaced HashSet, ArrayDeque, and dozens of temporary Vector3i instances
- *    with a reusable ThreadLocal<long[]> buffer and 64-bit coordinate bit-packing, reducing temporary
- *    heap churn during structure resolution from ~3-5 KB down to 0 bytes per event.
- * 2. L1-Friendly Visited Check: Replaced hash-table lookups with a linear scan over at most 12 primitive
- *    longs, eliminating HashMap.Node allocations and maximizing CPU cache locality.
- * 3. Network Packet Retention Elimination: Extracted primitive values before dispatching the asynchronous
- *    latency task, preventing the lambda closure from holding references to PacketSendEvent and Netty ByteBufs
- *    across network ping delays.
- * 4. Exact Capacity Sizing: Pre-sized ArrayList<SimpleCollisionBox> to the exact required capacity,
- *    eliminating internal array resizing and arraycopy operations.
- * 5. Precomputed Offsets: Replaced BlockFace enum method calls within sticky block traversal loops with
- *    static primitive delta arrays (ADJ_DX/DY/DZ).
- */
 public class PistonEvent extends PacketListenerAbstract {
 
     private static final double MAX_HORIZONTAL_DISTANCE = 24.0;
     private static final double MAX_VERTICAL_DISTANCE = 64.0;
     private static final int MAX_PUSH_BLOCKS = 12;
 
-    private static final int[] ADJ_DX = {0, 0, 0, 0, -1, 1};
-    private static final int[] ADJ_DY = {-1, 1, 0, 0, 0, 0};
-    private static final int[] ADJ_DZ = {0, 0, -1, 1, 0, 0};
+    private static final int PUSH_BLOCKED = -1;
+    private static final int INITIAL_PUSH_QUEUE_SIZE = 1;
+
+    private static final int[] ADJACENT_DX = {0, 0, 0, 0, -1, 1};
+    private static final int[] ADJACENT_DY = {-1, 1, 0, 0, 0, 0};
+    private static final int[] ADJACENT_DZ = {0, 0, -1, 1, 0, 0};
+
+    private static final int PACKED_X_BITS = 26;
+    private static final int PACKED_Z_BITS = 26;
+    private static final int PACKED_Y_BITS = 12;
+    private static final long PACKED_XZ_MASK = (1L << PACKED_X_BITS) - 1L;
+    private static final long PACKED_Y_MASK = (1L << PACKED_Y_BITS) - 1L;
+    private static final int PACKED_Y_SHIFT = PACKED_Z_BITS;
+    private static final int PACKED_X_SHIFT = PACKED_Z_BITS + PACKED_Y_BITS;
 
     private static final ThreadLocal<long[]> PUSH_BUFFER = ThreadLocal.withInitial(() -> new long[MAX_PUSH_BLOCKS]);
-
     private static final Set<StateType> IMMOVABLE_TYPES = Collections.newSetFromMap(new IdentityHashMap<>(64));
 
     static {
@@ -94,12 +89,6 @@ public class PistonEvent extends PacketListenerAbstract {
         return true;
     }
 
-    private static boolean isCloseEnough(int x, int y, int z, Vector3d playerPos) {
-        return Math.abs(x - playerPos.getX()) <= MAX_HORIZONTAL_DISTANCE
-                && Math.abs(y - playerPos.getY()) <= MAX_VERTICAL_DISTANCE
-                && Math.abs(z - playerPos.getZ()) <= MAX_HORIZONTAL_DISTANCE;
-    }
-
     @Override
     public void onPacketSend(PacketSendEvent event) {
         if (event.getPacketType() != PacketType.Play.Server.BLOCK_ACTION) {
@@ -107,17 +96,15 @@ public class PistonEvent extends PacketListenerAbstract {
         }
 
         GrimPlayer player = GrimAPI.INSTANCE.getPlayerDataManager().getPlayer(event.getUser());
-        if (player == null) return;
+        if (player == null || !hasTrackedPosition(player)) {
+            return;
+        }
 
         WrapperPlayServerBlockAction blockAction = new WrapperPlayServerBlockAction(event);
         Vector3i blockPos = blockAction.getBlockPosition();
         int bx = blockPos.getX();
         int by = blockPos.getY();
         int bz = blockPos.getZ();
-
-        if (player.compensatedEntities.self == null || player.compensatedEntities.self.trackedServerPosition == null) {
-            return;
-        }
 
         Vector3d playerPos = player.compensatedEntities.self.trackedServerPosition.getPos();
         if (!isCloseEnough(bx, by, bz, playerPos)) {
@@ -128,6 +115,10 @@ public class PistonEvent extends PacketListenerAbstract {
             return;
         }
 
+        schedulePistonTask(player, blockAction, bx, by, bz);
+    }
+
+    private void schedulePistonTask(GrimPlayer player, WrapperPlayServerBlockAction blockAction, int bx, int by, int bz) {
         int actionId = blockAction.getActionId();
         int actionData = blockAction.getActionData();
         int lastTrans = player.lastTransactionSent.get();
@@ -139,17 +130,11 @@ public class PistonEvent extends PacketListenerAbstract {
                 return;
             }
 
-            BlockFace direction = BlockFace.getBlockFaceByValue(actionData);
-            if (direction == null || direction == BlockFace.OTHER) {
-                direction = state.getFacing();
-            }
-            if (direction == null) {
-                direction = BlockFace.UP;
-            }
+            BlockFace direction = resolveDirection(actionData, state);
+            boolean extending = isExtendingAction(actionId, state.isExtended());
+            boolean isSticky = type == StateTypes.STICKY_PISTON;
 
-            boolean extending = (actionId == 1) || (actionId != 0 && actionId != 2 && !state.isExtended());
-
-            PistonData data = resolvePiston(player.compensatedWorld, bx, by, bz, direction, extending, type == StateTypes.STICKY_PISTON, lastTrans);
+            PistonData data = resolvePiston(player.compensatedWorld, bx, by, bz, direction, extending, isSticky, lastTrans);
             player.compensatedWorld.activePistons.add(data);
         });
     }
@@ -159,71 +144,44 @@ public class PistonEvent extends PacketListenerAbstract {
         int dy = direction.getModY();
         int dz = direction.getModZ();
 
-        int hx = px + dx;
-        int hy = py + dy;
-        int hz = pz + dz;
+        int headX = px + dx;
+        int headY = py + dy;
+        int headZ = pz + dz;
 
-        int pdx = extending ? dx : -dx;
-        int pdy = extending ? dy : -dy;
-        int pdz = extending ? dz : -dz;
+        int pushDx = extending ? dx : -dx;
+        int pushDy = extending ? dy : -dy;
+        int pushDz = extending ? dz : -dz;
 
-        int toPushCount = 0;
-        long[] toPush = PUSH_BUFFER.get();
-        boolean hasSlime = false;
-        boolean hasHoney = false;
+        long[] pushBuffer = PUSH_BUFFER.get();
+        int pushedCount = resolvePushedBlocks(world, px, py, pz, headX, headY, headZ, dx, dy, dz, pushDx, pushDy, pushDz, extending, isSticky, pushBuffer);
 
-        boolean hasStart = extending || isSticky;
-        if (hasStart) {
-            int sx = extending ? hx : (hx + dx);
-            int sy = extending ? hy : (hy + dy);
-            int sz = extending ? hz : (hz + dz);
+        return createPistonData(world, direction, lastTrans, extending, headX, headY, headZ, pushDx, pushDy, pushDz, pushBuffer, pushedCount);
+    }
 
-            WrappedBlockState startState = world.getBlock(sx, sy, sz);
-            if (startState != null && !startState.getType().isAir() && !isDestroyable(startState)) {
-                if (!isImmovable(startState)) {
-                    long startPosPacked = packPos(sx, sy, sz);
-                    long pistonPosPacked = packPos(px, py, pz);
-                    int resolved = resolveStructure(world, startPosPacked, pistonPosPacked, pdx, pdy, pdz, toPush);
-                    if (resolved > 0) {
-                        toPushCount = resolved;
-                    }
-                }
-            }
+    private static int resolvePushedBlocks(CompensatedWorld world, int px, int py, int pz, int headX, int headY, int headZ, int dx, int dy, int dz, int pushDx, int pushDy, int pushDz, boolean extending, boolean isSticky, long[] buffer) {
+        if (!extending && !isSticky) {
+            return 0;
         }
 
-        int boxCapacity = (toPushCount * 2) + (extending || toPushCount == 0 ? 1 : 0);
-        List<SimpleCollisionBox> boxes = new ArrayList<>(boxCapacity);
+        int startX = extending ? headX : (headX + dx);
+        int startY = extending ? headY : (headY + dy);
+        int startZ = extending ? headZ : (headZ + dz);
 
-        for (int i = 0; i < toPushCount; i++) {
-            long pos = toPush[i];
-            int bx = unpackX(pos);
-            int by = unpackY(pos);
-            int bz = unpackZ(pos);
-
-            boxes.add(new SimpleCollisionBox(bx, by, bz, bx + 1, by + 1, bz + 1, true));
-            boxes.add(new SimpleCollisionBox(bx + pdx, by + pdy, bz + pdz, bx + pdx + 1, by + pdy + 1, bz + pdz + 1, true));
-
-            WrappedBlockState bs = world.getBlock(bx, by, bz);
-            if (bs != null) {
-                StateType st = bs.getType();
-                if (st == StateTypes.SLIME_BLOCK) {
-                    hasSlime = true;
-                } else if (st == StateTypes.HONEY_BLOCK) {
-                    hasHoney = true;
-                }
-            }
+        WrappedBlockState startState = world.getBlock(startX, startY, startZ);
+        if (!isMovable(startState) || isImmovable(startState)) {
+            return 0;
         }
 
-        if (extending || toPushCount == 0) {
-            boxes.add(new SimpleCollisionBox(hx, hy, hz, hx + 1, hy + 1, hz + 1, true));
-        }
+        long startPos = packPos(startX, startY, startZ);
+        long pistonPos = packPos(px, py, pz);
+        int resolved = resolveStructure(world, startPos, pistonPos, pushDx, pushDy, pushDz, buffer);
 
-        return new PistonData(direction, boxes, lastTrans, extending, hasSlime, hasHoney);
+        return resolved > 0 ? resolved : 0;
     }
 
     private static int resolveStructure(CompensatedWorld world, long startPos, long pistonPos, int pdx, int pdy, int pdz, long[] toPush) {
         toPush[0] = startPos;
-        int count = 1;
+        int count = INITIAL_PUSH_QUEUE_SIZE;
         int head = 0;
 
         while (head < count) {
@@ -233,53 +191,124 @@ public class PistonEvent extends PacketListenerAbstract {
             int cz = unpackZ(curr);
 
             WrappedBlockState currState = world.getBlock(cx, cy, cz);
-            if (currState == null) continue;
-
-            int fx = cx + pdx;
-            int fy = cy + pdy;
-            int fz = cz + pdz;
-            long forward = packPos(fx, fy, fz);
-
-            if (forward != pistonPos && !contains(toPush, count, forward)) {
-                WrappedBlockState forwardState = world.getBlock(fx, fy, fz);
-                if (forwardState != null && !forwardState.getType().isAir() && !isDestroyable(forwardState)) {
-                    if (isImmovable(forwardState) || count >= MAX_PUSH_BLOCKS) {
-                        return -1;
-                    }
-                    toPush[count++] = forward;
-                }
+            if (currState == null) {
+                continue;
             }
 
+            int forwardCount = processForwardBlock(world, cx + pdx, cy + pdy, cz + pdz, pistonPos, toPush, count);
+            if (forwardCount == PUSH_BLOCKED) {
+                return PUSH_BLOCKED;
+            }
+            count = forwardCount;
+
             if (isStickyBlock(currState.getType())) {
-                for (int i = 0; i < 6; i++) {
-                    int ax = cx + ADJ_DX[i];
-                    int ay = cy + ADJ_DY[i];
-                    int az = cz + ADJ_DZ[i];
-                    long adj = packPos(ax, ay, az);
-
-                    if (adj == pistonPos || contains(toPush, count, adj)) {
-                        continue;
-                    }
-
-                    WrappedBlockState adjState = world.getBlock(ax, ay, az);
-                    if (adjState == null || adjState.getType().isAir() || isDestroyable(adjState)) {
-                        continue;
-                    }
-
-                    if (!canStickTogether(currState.getType(), adjState.getType())) {
-                        continue;
-                    }
-
-                    if (isImmovable(adjState) || count >= MAX_PUSH_BLOCKS) {
-                        return -1;
-                    }
-
-                    toPush[count++] = adj;
+                int stickyCount = processStickyNeighbors(world, currState.getType(), cx, cy, cz, pistonPos, toPush, count);
+                if (stickyCount == PUSH_BLOCKED) {
+                    return PUSH_BLOCKED;
                 }
+                count = stickyCount;
             }
         }
 
         return count;
+    }
+
+    private static int processForwardBlock(CompensatedWorld world, int fx, int fy, int fz, long pistonPos, long[] toPush, int count) {
+        long forward = packPos(fx, fy, fz);
+        if (forward == pistonPos || contains(toPush, count, forward)) {
+            return count;
+        }
+
+        WrappedBlockState state = world.getBlock(fx, fy, fz);
+        if (!isMovable(state)) {
+            return count;
+        }
+
+        if (isImmovable(state) || count >= MAX_PUSH_BLOCKS) {
+            return PUSH_BLOCKED;
+        }
+
+        toPush[count] = forward;
+        return count + 1;
+    }
+
+    private static int processStickyNeighbors(CompensatedWorld world, StateType parentType, int cx, int cy, int cz, long pistonPos, long[] toPush, int count) {
+        for (int i = 0; i < 6; i++) {
+            int ax = cx + ADJACENT_DX[i];
+            int ay = cy + ADJACENT_DY[i];
+            int az = cz + ADJACENT_DZ[i];
+            long adj = packPos(ax, ay, az);
+
+            if (adj == pistonPos || contains(toPush, count, adj)) {
+                continue;
+            }
+
+            WrappedBlockState state = world.getBlock(ax, ay, az);
+            if (!isMovable(state) || !canStickTogether(parentType, state.getType())) {
+                continue;
+            }
+
+            if (isImmovable(state) || count >= MAX_PUSH_BLOCKS) {
+                return PUSH_BLOCKED;
+            }
+
+            toPush[count++] = adj;
+        }
+        return count;
+    }
+
+    private static PistonData createPistonData(CompensatedWorld world, BlockFace direction, int lastTrans, boolean extending, int headX, int headY, int headZ, int pushDx, int pushDy, int pushDz, long[] pushedBlocks, int count) {
+        int capacity = (count * 2) + (extending || count == 0 ? 1 : 0);
+        List<SimpleCollisionBox> boxes = new ArrayList<>(capacity);
+
+        boolean hasSlime = false;
+        boolean hasHoney = false;
+
+        for (int i = 0; i < count; i++) {
+            long pos = pushedBlocks[i];
+            int bx = unpackX(pos);
+            int by = unpackY(pos);
+            int bz = unpackZ(pos);
+
+            boxes.add(new SimpleCollisionBox(bx, by, bz, bx + 1, by + 1, bz + 1, true));
+            boxes.add(new SimpleCollisionBox(bx + pushDx, by + pushDy, bz + pushDz, bx + pushDx + 1, by + pushDy + 1, bz + pushDz + 1, true));
+
+            WrappedBlockState state = world.getBlock(bx, by, bz);
+            if (state != null) {
+                StateType type = state.getType();
+                if (type == StateTypes.SLIME_BLOCK) hasSlime = true;
+                if (type == StateTypes.HONEY_BLOCK) hasHoney = true;
+            }
+        }
+
+        if (extending || count == 0) {
+            boxes.add(new SimpleCollisionBox(headX, headY, headZ, headX + 1, headY + 1, headZ + 1, true));
+        }
+
+        return new PistonData(direction, boxes, lastTrans, extending, hasSlime, hasHoney);
+    }
+
+    private static boolean hasTrackedPosition(GrimPlayer player) {
+        return player.compensatedEntities.self != null
+                && player.compensatedEntities.self.trackedServerPosition != null;
+    }
+
+    private static boolean isCloseEnough(int x, int y, int z, Vector3d playerPos) {
+        return Math.abs(x - playerPos.getX()) <= MAX_HORIZONTAL_DISTANCE
+                && Math.abs(y - playerPos.getY()) <= MAX_VERTICAL_DISTANCE
+                && Math.abs(z - playerPos.getZ()) <= MAX_HORIZONTAL_DISTANCE;
+    }
+
+    private static BlockFace resolveDirection(int actionData, WrappedBlockState state) {
+        BlockFace direction = BlockFace.getBlockFaceByValue(actionData);
+        if (direction == null || direction == BlockFace.OTHER) {
+            direction = state.getFacing();
+        }
+        return direction != null ? direction : BlockFace.UP;
+    }
+
+    private static boolean isExtendingAction(int actionId, boolean isExtended) {
+        return actionId == 1 || (actionId != 0 && actionId != 2 && !isExtended);
     }
 
     private static boolean contains(long[] array, int size, long val) {
@@ -289,18 +318,26 @@ public class PistonEvent extends PacketListenerAbstract {
         return false;
     }
 
+    private static boolean isMovable(WrappedBlockState state) {
+        return state != null && !state.getType().isAir() && !isDestroyable(state);
+    }
+
     private static boolean isDestroyable(WrappedBlockState state) {
         StateType type = state.getType();
-        if (type.isAir()) return true;
-        if (type == StateTypes.WATER || type == StateTypes.LAVA) return true;
+        if (type.isAir() || type == StateTypes.WATER || type == StateTypes.LAVA) {
+            return true;
+        }
         return type.getHardness() == 0.0F && type != StateTypes.MOVING_PISTON;
     }
 
     private static boolean isImmovable(WrappedBlockState state) {
         StateType type = state.getType();
-        if (type.getHardness() == -1.0F) return true;
-        if (IMMOVABLE_TYPES.contains(type)) return true;
-        if ((type == StateTypes.PISTON || type == StateTypes.STICKY_PISTON) && state.isExtended()) return true;
+        if (type.getHardness() == -1.0F || IMMOVABLE_TYPES.contains(type)) {
+            return true;
+        }
+        if ((type == StateTypes.PISTON || type == StateTypes.STICKY_PISTON) && state.isExtended()) {
+            return true;
+        }
         return Materials.isShulker(type);
     }
 
@@ -314,13 +351,13 @@ public class PistonEvent extends PacketListenerAbstract {
     }
 
     private static long packPos(int x, int y, int z) {
-        return (((long) x & 0x3FFFFFFL) << 38)
-                | (((long) y & 0xFFFL) << 26)
-                | ((long) z & 0x3FFFFFFL);
+        return (((long) x & PACKED_XZ_MASK) << PACKED_X_SHIFT)
+                | (((long) y & PACKED_Y_MASK) << PACKED_Y_SHIFT)
+                | ((long) z & PACKED_XZ_MASK);
     }
 
     private static int unpackX(long p) {
-        return (int) (p >> 38);
+        return (int) (p >> PACKED_X_SHIFT);
     }
 
     private static int unpackY(long p) {
@@ -328,7 +365,6 @@ public class PistonEvent extends PacketListenerAbstract {
     }
 
     private static int unpackZ(long p) {
-        return (int) ((p << 38) >> 38);
+        return (int) ((p << PACKED_X_SHIFT) >> PACKED_X_SHIFT);
     }
 }
-
