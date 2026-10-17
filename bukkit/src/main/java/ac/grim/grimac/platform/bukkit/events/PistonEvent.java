@@ -331,4 +331,3 @@ public class PistonEvent extends PacketListenerAbstract {
         return (int) ((p << 38) >> 38);
     }
 }
-
