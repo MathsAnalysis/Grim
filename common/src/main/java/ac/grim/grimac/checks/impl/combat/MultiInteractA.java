@@ -9,6 +9,7 @@ import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.anticheat.update.PredictionComplete;
 import com.github.retrooper.packetevents.event.PacketReceiveEvent;
 import com.github.retrooper.packetevents.protocol.packettype.PacketType;
+import com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon;
 import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientAttack;
 import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientInteractEntity;
 import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientSpectateEntity;
@@ -17,38 +18,51 @@ import java.util.ArrayList;
 
 @CheckData(name = "MultiInteractA", stableKey = "grim.multiinteract.multiple_targets", description = "Interacted with multiple entities in the same tick", experimental = true)
 public class MultiInteractA extends Check implements PacketReceiveListener, PostPredictionListener {
-    private static final Verbose V =
-            Verbose.of("lastEntity={sint}, entity={sint}, lastSneaking={bool}, sneaking={bool}");
+
+    private static final Verbose V = Verbose.of("lastEntity={sint}, entity={sint}, lastSneaking={bool}, sneaking={bool}");
+
+    private static final PacketTypeCommon[] HANDLED_PACKETS = new PacketTypeCommon[]{
+            PacketType.Play.Client.INTERACT_ENTITY,
+            PacketType.Play.Client.ATTACK,
+            PacketType.Play.Client.SPECTATE_ENTITY,
+            PacketType.Play.Client.PLAYER_FLYING,
+            PacketType.Play.Client.PLAYER_POSITION,
+            PacketType.Play.Client.PLAYER_POSITION_AND_ROTATION,
+            PacketType.Play.Client.PLAYER_ROTATION
+    };
 
     private final ArrayList<FlagData> flags = new ArrayList<>();
     private int lastEntity;
     private boolean lastSneaking;
-    private boolean hasInteracted = false;
+    private boolean hasInteracted;
 
     public MultiInteractA(final GrimPlayer player) {
         super(player);
     }
 
     @Override
+    public PacketTypeCommon[] getHandledPacketTypes() {
+        return HANDLED_PACKETS;
+    }
+
+    @Override
     public void onPacketReceive(PacketReceiveEvent event) {
-        if (event.getPacketType() == PacketType.Play.Client.INTERACT_ENTITY) {
+        final PacketTypeCommon packetType = event.getPacketType();
+
+        if (packetType == PacketType.Play.Client.INTERACT_ENTITY) {
             WrapperPlayClientInteractEntity packet = new WrapperPlayClientInteractEntity(event);
             int entity = packet.getEntityId();
             boolean sneaking = packet.isSneaking().orElse(false);
             onInteract(event, entity, sneaking);
-        }
-
-        if (event.getPacketType() == PacketType.Play.Client.ATTACK) {
+        } else if (packetType == PacketType.Play.Client.ATTACK) {
             WrapperPlayClientAttack packet = new WrapperPlayClientAttack(event);
             onInteract(event, packet.getEntityId(), lastSneaking);
-        }
-
-        if (event.getPacketType() == PacketType.Play.Client.SPECTATE_ENTITY) {
+        } else if (packetType == PacketType.Play.Client.SPECTATE_ENTITY) {
             WrapperPlayClientSpectateEntity packet = new WrapperPlayClientSpectateEntity(event);
             onInteract(event, packet.getEntityId(), lastSneaking);
         }
 
-        if (!player.cameraEntity.isSelf() || isTickPacket(event.getPacketType())) {
+        if (!player.cameraEntity.isSelf() || isTickPacket(packetType)) {
             hasInteracted = false;
         }
     }
@@ -72,9 +86,9 @@ public class MultiInteractA extends Check implements PacketReceiveListener, Post
 
     @Override
     public void onPredictionComplete(PredictionComplete predictionComplete) {
-        if (!player.canSkipTicks()) return;
+        if (flags.isEmpty()) return;
 
-        if (player.isTickingReliablyFor(3)) {
+        if (player.canSkipTicks() && player.isTickingReliablyFor(3)) {
             for (FlagData data : flags) {
                 flag(V.write(verbose()).sint(data.lastEntity()).sint(data.entity()).bool(data.lastSneaking()).bool(data.sneaking()));
             }

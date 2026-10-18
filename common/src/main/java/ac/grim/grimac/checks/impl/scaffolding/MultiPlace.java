@@ -11,6 +11,8 @@ import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.anticheat.update.BlockPlace;
 import ac.grim.grimac.utils.anticheat.update.PredictionComplete;
 import com.github.retrooper.packetevents.event.PacketReceiveEvent;
+import com.github.retrooper.packetevents.protocol.packettype.PacketType;
+import com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon;
 import com.github.retrooper.packetevents.protocol.world.BlockFace;
 import com.github.retrooper.packetevents.util.Vector3f;
 import com.github.retrooper.packetevents.util.Vector3i;
@@ -20,7 +22,15 @@ import java.util.List;
 
 @CheckData(name = "MultiPlace", stableKey = "grim.scaffolding.multi_place", description = "Placed multiple blocks in a tick", experimental = true)
 public class MultiPlace extends BlockPlaceCheck implements PacketReceiveListener, PostPredictionListener, BlockPlaceListener {
+
     private static final Verbose V = Verbose.of("face={face}, lastFace={face}, cursor={cursor}, lastCursor={cursor}, pos={mcpos}, lastPos={mcpos}");
+
+    private static final PacketTypeCommon[] HANDLED_PACKETS = new PacketTypeCommon[]{
+            PacketType.Play.Client.PLAYER_FLYING,
+            PacketType.Play.Client.PLAYER_POSITION,
+            PacketType.Play.Client.PLAYER_POSITION_AND_ROTATION,
+            PacketType.Play.Client.PLAYER_ROTATION
+    };
 
     private final List<FlagData> flags = new ArrayList<>();
     private boolean hasPlaced;
@@ -30,6 +40,11 @@ public class MultiPlace extends BlockPlaceCheck implements PacketReceiveListener
 
     public MultiPlace(GrimPlayer player) {
         super(player);
+    }
+
+    @Override
+    public PacketTypeCommon[] getHandledPacketTypes() {
+        return HANDLED_PACKETS;
     }
 
     @Override
@@ -47,8 +62,7 @@ public class MultiPlace extends BlockPlaceCheck implements PacketReceiveListener
                         .cursor(lastCursor.x, lastCursor.y, lastCursor.z)
                         .mcPos(pos.x, pos.y, pos.z)
                         .mcPos(lastPos.x, lastPos.y, lastPos.z);
-                if (flag(buf)
-                        && shouldModifyPackets() && shouldCancel()) {
+                if (flag(buf) && shouldModifyPackets() && shouldCancel()) {
                     place.resync();
                 }
             } else {
@@ -71,9 +85,9 @@ public class MultiPlace extends BlockPlaceCheck implements PacketReceiveListener
 
     @Override
     public void onPredictionComplete(PredictionComplete predictionComplete) {
-        if (!player.canSkipTicks()) return;
+        if (flags.isEmpty()) return;
 
-        if (player.isTickingReliablyFor(3)) {
+        if (player.canSkipTicks() && player.isTickingReliablyFor(3)) {
             for (FlagData data : flags) {
                 flag(V.write(verbose()).uint(data.face()).uint(data.lastFace())
                         .cursor(data.cursor().x, data.cursor().y, data.cursor().z)

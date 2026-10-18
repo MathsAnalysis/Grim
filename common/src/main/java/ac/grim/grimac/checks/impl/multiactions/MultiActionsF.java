@@ -13,6 +13,7 @@ import ac.grim.grimac.utils.anticheat.update.BlockPlace;
 import ac.grim.grimac.utils.anticheat.update.PredictionComplete;
 import com.github.retrooper.packetevents.event.PacketReceiveEvent;
 import com.github.retrooper.packetevents.protocol.packettype.PacketType;
+import com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon;
 import com.github.retrooper.packetevents.protocol.player.DiggingAction;
 
 import java.util.ArrayList;
@@ -20,18 +21,34 @@ import java.util.List;
 
 @CheckData(name = "MultiActionsF", stableKey = "grim.multiactions.block_and_entity_interact", description = "Interacting with a block and an entity in the same tick", experimental = true)
 public class MultiActionsF extends BlockPlaceCheck implements PacketReceiveListener, PostPredictionListener, BlockPlaceListener, BlockBreakListener {
-    // Shape index == ACTION_* constant value.
+
     private static final Verbose V = Verbose.of("action=place").or("action=entity").or("action=dig");
 
     private static final int ACTION_PLACE = 0;
     private static final int ACTION_ENTITY = 1;
     private static final int ACTION_DIG = 2;
 
+    private static final PacketTypeCommon[] HANDLED_PACKETS = new PacketTypeCommon[]{
+            PacketType.Play.Client.INTERACT_ENTITY,
+            PacketType.Play.Client.ATTACK,
+            PacketType.Play.Client.SPECTATE_ENTITY,
+            PacketType.Play.Client.PLAYER_FLYING,
+            PacketType.Play.Client.PLAYER_POSITION,
+            PacketType.Play.Client.PLAYER_POSITION_AND_ROTATION,
+            PacketType.Play.Client.PLAYER_ROTATION
+    };
+
     private final List<FlagData> flags = new ArrayList<>();
-    private boolean entity, block;
+    private boolean entity;
+    private boolean block;
 
     public MultiActionsF(GrimPlayer player) {
         super(player);
+    }
+
+    @Override
+    public PacketTypeCommon[] getHandledPacketTypes() {
+        return HANDLED_PACKETS;
     }
 
     private Verbose.Writer writeAction(int action) {
@@ -54,9 +71,11 @@ public class MultiActionsF extends BlockPlaceCheck implements PacketReceiveListe
 
     @Override
     public void onPacketReceive(PacketReceiveEvent event) {
-        if (event.getPacketType() == PacketType.Play.Client.INTERACT_ENTITY
-                || event.getPacketType() == PacketType.Play.Client.ATTACK
-                || event.getPacketType() == PacketType.Play.Client.SPECTATE_ENTITY) {
+        final PacketTypeCommon packetType = event.getPacketType();
+
+        if (packetType == PacketType.Play.Client.INTERACT_ENTITY
+                || packetType == PacketType.Play.Client.ATTACK
+                || packetType == PacketType.Play.Client.SPECTATE_ENTITY) {
             entity = true;
             if (block) {
                 if (!player.canSkipTicks()) {
@@ -70,7 +89,7 @@ public class MultiActionsF extends BlockPlaceCheck implements PacketReceiveListe
             }
         }
 
-        if (isTickPacket(event.getPacketType())) {
+        if (isTickPacket(packetType)) {
             block = entity = false;
         }
     }
@@ -93,9 +112,9 @@ public class MultiActionsF extends BlockPlaceCheck implements PacketReceiveListe
 
     @Override
     public void onPredictionComplete(PredictionComplete predictionComplete) {
-        if (!player.canSkipTicks()) return;
+        if (flags.isEmpty()) return;
 
-        if (player.isTickingReliablyFor(3)) {
+        if (player.canSkipTicks() && player.isTickingReliablyFor(3)) {
             for (FlagData data : flags) {
                 flag(writeAction(data.action()));
             }

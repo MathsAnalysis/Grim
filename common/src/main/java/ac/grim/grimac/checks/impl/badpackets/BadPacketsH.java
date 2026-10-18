@@ -13,12 +13,18 @@ import com.github.retrooper.packetevents.PacketEvents;
 import com.github.retrooper.packetevents.event.PacketReceiveEvent;
 import com.github.retrooper.packetevents.manager.server.ServerVersion;
 import com.github.retrooper.packetevents.protocol.packettype.PacketType;
+import com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon;
 import com.github.retrooper.packetevents.protocol.player.ClientVersion;
 import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientUseItem;
 
 @CheckData(name = "BadPacketsH", stableKey = "grim.badpackets.unexpected_sequence", description = "Sent unexpected sequence id", experimental = true)
 public class BadPacketsH extends BlockPlaceCheck implements PacketReceiveListener, BlockPlaceListener, BlockBreakListener {
+
     private static final Verbose V = Verbose.of("expected={sint}, id={sint}");
+
+    private static final PacketTypeCommon[] HANDLED_PACKETS = new PacketTypeCommon[]{
+            PacketType.Play.Client.USE_ITEM
+    };
 
     private int lastSequence;
 
@@ -30,6 +36,11 @@ public class BadPacketsH extends BlockPlaceCheck implements PacketReceiveListene
     public boolean isApplicable() {
         return player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_19)
                 && PacketEvents.getAPI().getServerManager().getVersion().isNewerThanOrEquals(ServerVersion.V_1_19);
+    }
+
+    @Override
+    public PacketTypeCommon[] getHandledPacketTypes() {
+        return HANDLED_PACKETS;
     }
 
     @Override
@@ -56,7 +67,7 @@ public class BadPacketsH extends BlockPlaceCheck implements PacketReceiveListene
                     blockBreak.cancel();
                 }
             }
-            case CANCELLED_DIGGING -> { // other actions will be checked by BadPacketsL
+            case CANCELLED_DIGGING -> {
                 if (blockBreak.sequence != 0 && flagSequence(0, blockBreak.sequence) && shouldModifyPackets()) {
                     blockBreak.cancel();
                 }

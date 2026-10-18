@@ -8,11 +8,20 @@ import com.github.retrooper.packetevents.PacketEvents;
 import com.github.retrooper.packetevents.event.PacketReceiveEvent;
 import com.github.retrooper.packetevents.manager.server.ServerVersion;
 import com.github.retrooper.packetevents.protocol.packettype.PacketType;
+import com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon;
 import com.github.retrooper.packetevents.protocol.player.ClientVersion;
 import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientUseItem;
 
 @CheckData(name = "BadPacketsJ", stableKey = "grim.badpackets.use_item_rotation_mismatch", description = "Rotation in use item packet did not match tick rotation")
 public class BadPacketsJ extends Check implements PacketReceiveListener {
+
+    private static final PacketTypeCommon[] HANDLED_PACKETS = new PacketTypeCommon[]{
+            PacketType.Play.Client.USE_ITEM,
+            PacketType.Play.Client.PLAYER_FLYING,
+            PacketType.Play.Client.PLAYER_POSITION,
+            PacketType.Play.Client.PLAYER_POSITION_AND_ROTATION,
+            PacketType.Play.Client.PLAYER_ROTATION
+    };
 
     private float yaw;
     private float pitch;
@@ -29,19 +38,26 @@ public class BadPacketsJ extends Check implements PacketReceiveListener {
     }
 
     @Override
+    public PacketTypeCommon[] getHandledPacketTypes() {
+        return HANDLED_PACKETS;
+    }
+
+    @Override
     public void onPacketReceive(PacketReceiveEvent event) {
         if (!player.cameraEntity.isSelf()) {
             this.rotations = 0;
             return;
         }
 
-        if (event.getPacketType() == PacketType.Play.Client.USE_ITEM) {
+        final PacketTypeCommon packetType = event.getPacketType();
+
+        if (packetType == PacketType.Play.Client.USE_ITEM) {
             WrapperPlayClientUseItem packet = new WrapperPlayClientUseItem(event);
 
-            float yaw = packet.getYaw();
-            float pitch = packet.getPitch();
+            float currentYaw = packet.getYaw();
+            float currentPitch = packet.getPitch();
 
-            if (this.rotations > 0 && (this.yaw != yaw || this.pitch != pitch)) {
+            if (this.rotations > 0 && (this.yaw != currentYaw || this.pitch != currentPitch)) {
                 if (!player.canSkipTicks() || this.yaw != player.yaw || this.pitch != player.pitch) {
                     while (this.rotations-- > 0) flag();
                 }
@@ -50,16 +66,15 @@ public class BadPacketsJ extends Check implements PacketReceiveListener {
 
             if (this.rotations != Integer.MAX_VALUE)
                 this.rotations++;
-            this.yaw = yaw;
-            this.pitch = pitch;
+            this.yaw = currentYaw;
+            this.pitch = currentPitch;
         }
 
-        if (this.rotations > 0 && isTickPacket(event.getPacketType())) {
+        if (this.rotations > 0 && isTickPacket(packetType)) {
             if (this.yaw != player.yaw || this.pitch != player.pitch) {
-                // due to tick skipping, the rotations sent could be last tick's
                 boolean allowLast = player.canSkipTicks()
-                        && (event.getPacketType() == PacketType.Play.Client.PLAYER_POSITION_AND_ROTATION
-                        || event.getPacketType() == PacketType.Play.Client.PLAYER_ROTATION);
+                        && (packetType == PacketType.Play.Client.PLAYER_POSITION_AND_ROTATION
+                        || packetType == PacketType.Play.Client.PLAYER_ROTATION);
                 if (!allowLast || this.yaw != player.lastYaw || this.pitch != player.lastPitch) {
                     while (this.rotations-- > 0) flag();
                 }

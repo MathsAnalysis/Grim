@@ -7,7 +7,6 @@ import ac.grim.grimac.checks.type.PacketReceiveListener;
 import ac.grim.grimac.checks.type.PacketSendListener;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.inventory.Inventory;
-import ac.grim.grimac.utils.math.GrimMath;
 import com.github.retrooper.packetevents.event.PacketReceiveEvent;
 import com.github.retrooper.packetevents.event.PacketSendEvent;
 import com.github.retrooper.packetevents.protocol.component.ComponentTypes;
@@ -24,13 +23,17 @@ import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientPl
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerDeathCombatEvent;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityStatus;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-@CheckData(name = "AutoTotem", stableKey = "grim.combat.autototem", description = "Detects unfair automated Totem of Undying usage", experimental = false)
+@CheckData(
+        name = "AutoTotem",
+        stableKey = "grim.combat.autototem",
+        description = "Detects unfair automated Totem of Undying usage",
+        experimental = false
+)
 public class AutoTotem extends Check implements PacketReceiveListener, PacketSendListener {
+
     private static final Verbose V_REACTION = Verbose.of("source={str}, ticks={uint}");
     private static final Verbose V_CLICK_DIFF = Verbose.of("clickDiff={ulong}ms, useDiff={ulong}ms");
     private static final Verbose V_SPRINT = Verbose.of("source={str}");
@@ -42,7 +45,31 @@ public class AutoTotem extends Check implements PacketReceiveListener, PacketSen
     private static final int EXPIRE_TICKS = 40;
     private static final long MAX_CLICK_DIFF_MS = 35L;
     private static final long MAX_USE_TO_PLACE_DIFF_MS = 2500L;
+    private static final long MAX_POP_INTERVAL_MS = 3000L;
+    private static final double CONSISTENCY_MAX_STDDEV = 5.0;
     private static final int CONSISTENCY_SAMPLE_SIZE = 5;
+    private static final int INVENTORY_WINDOW_ID = 0;
+    private static final int HOTBAR_SWAP_OFFHAND_BUTTON = 40;
+
+    private static final PacketTypeCommon[] RECEIVE_PACKETS = new PacketTypeCommon[]{
+            PacketType.Play.Client.PLAYER_FLYING,
+            PacketType.Play.Client.PLAYER_POSITION,
+            PacketType.Play.Client.PLAYER_POSITION_AND_ROTATION,
+            PacketType.Play.Client.PLAYER_ROTATION,
+            PacketType.Play.Client.CLOSE_WINDOW,
+            PacketType.Play.Client.CLICK_WINDOW,
+            PacketType.Play.Client.PLAYER_DIGGING
+    };
+
+    private static final PacketTypeCommon[] SEND_PACKETS = new PacketTypeCommon[]{
+            PacketType.Play.Server.RESPAWN,
+            PacketType.Play.Server.JOIN_GAME,
+            PacketType.Play.Server.DEATH_COMBAT_EVENT,
+            PacketType.Play.Server.ENTITY_STATUS
+    };
+
+    private static final OffhandAction ACTION_DEATH_PROTECT = new OffhandAction(true);
+    private static final OffhandAction ACTION_OTHER = new OffhandAction(false);
 
     private int tick;
     private boolean tracking;
@@ -55,7 +82,9 @@ public class AutoTotem extends Check implements PacketReceiveListener, PacketSen
     private boolean wasCarryingTotem;
     private int closesInTick;
 
-    private final List<Double> recentIntervals = new ArrayList<>();
+    private final double[] intervalHistory = new double[CONSISTENCY_SAMPLE_SIZE];
+    private int intervalCount;
+    private int intervalIndex;
 
     public AutoTotem(GrimPlayer player) {
         super(player);
@@ -64,6 +93,16 @@ public class AutoTotem extends Check implements PacketReceiveListener, PacketSen
     @Override
     public boolean isApplicable() {
         return player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_11);
+    }
+
+    @Override
+    public PacketTypeCommon[] getHandledPacketTypes() {
+        return RECEIVE_PACKETS;
+    }
+
+    @Override
+    public PacketTypeCommon[] getHandledSendPacketTypes() {
+        return SEND_PACKETS;
     }
 
     @Override
@@ -77,7 +116,8 @@ public class AutoTotem extends Check implements PacketReceiveListener, PacketSen
             return;
         }
 
-        if (packetType == PacketType.Play.Server.DEATH_COMBAT_EVENT && new WrapperPlayServerDeathCombatEvent(event).getPlayerId() == player.entityID) {
+        if (packetType == PacketType.Play.Server.DEATH_COMBAT_EVENT
+                && new WrapperPlayServerDeathCombatEvent(event).getPlayerId() == player.entityID) {
             resetTracking();
             return;
         }
@@ -121,7 +161,7 @@ public class AutoTotem extends Check implements PacketReceiveListener, PacketSen
 
         if (packetType == PacketType.Play.Client.CLOSE_WINDOW) {
             WrapperPlayClientCloseWindow close = new WrapperPlayClientCloseWindow(event);
-            if (close.getWindowId() == 0) {
+            if (close.getWindowId() == INVENTORY_WINDOW_ID) {
                 closesInTick++;
                 if (closesInTick >= 2) {
                     flag(V_SEQUENCE.write(verbose()).str("multiple-close"));
@@ -133,7 +173,7 @@ public class AutoTotem extends Check implements PacketReceiveListener, PacketSen
         if (packetType == PacketType.Play.Client.CLICK_WINDOW) {
             WrapperPlayClientClickWindow click = new WrapperPlayClientClickWindow(event);
 
-            if (click.getWindowId() == 0 && closesInTick > 0) {
+            if (click.getWindowId() == INVENTORY_WINDOW_ID && closesInTick > 0) {
                 flag(V_SEQUENCE.write(verbose()).str("click-after-close"));
             }
 
@@ -149,7 +189,7 @@ public class AutoTotem extends Check implements PacketReceiveListener, PacketSen
         if (packetType == PacketType.Play.Client.PLAYER_DIGGING) {
             WrapperPlayClientPlayerDigging digging = new WrapperPlayClientPlayerDigging(event);
             if (digging.getAction() == DiggingAction.SWAP_ITEM_WITH_OFFHAND) {
-                handleOffhandRefill("swap", new OffhandAction(true));
+                handleOffhandRefill("swap", ACTION_DEATH_PROTECT);
             }
         }
     }
@@ -204,7 +244,7 @@ public class AutoTotem extends Check implements PacketReceiveListener, PacketSen
 
             if (lastPopTime != 0) {
                 long interval = now - lastPopTime;
-                if (interval >= 0 && interval <= 3000) {
+                if (interval >= 0 && interval <= MAX_POP_INTERVAL_MS) {
                     addIntervalSample((double) interval);
                 }
             }
@@ -212,13 +252,28 @@ public class AutoTotem extends Check implements PacketReceiveListener, PacketSen
     }
 
     private void addIntervalSample(double interval) {
-        recentIntervals.add(interval);
-        if (recentIntervals.size() > CONSISTENCY_SAMPLE_SIZE) {
-            recentIntervals.remove(0);
+        intervalHistory[intervalIndex % CONSISTENCY_SAMPLE_SIZE] = interval;
+        intervalIndex++;
+        if (intervalCount < CONSISTENCY_SAMPLE_SIZE) {
+            intervalCount++;
         }
-        if (recentIntervals.size() == CONSISTENCY_SAMPLE_SIZE) {
-            double stdDev = GrimMath.calculateSD(recentIntervals);
-            if (stdDev < 5.0) {
+
+        if (intervalCount == CONSISTENCY_SAMPLE_SIZE) {
+            double sum = 0.0;
+            for (int i = 0; i < CONSISTENCY_SAMPLE_SIZE; i++) {
+                sum += intervalHistory[i];
+            }
+            double mean = sum / CONSISTENCY_SAMPLE_SIZE;
+
+            double sumSqDiff = 0.0;
+            for (int i = 0; i < CONSISTENCY_SAMPLE_SIZE; i++) {
+                double diff = intervalHistory[i] - mean;
+                sumSqDiff += diff * diff;
+            }
+            double variance = sumSqDiff / (CONSISTENCY_SAMPLE_SIZE - 1);
+            double stdDev = Math.sqrt(variance);
+
+            if (stdDev < CONSISTENCY_MAX_STDDEV) {
                 flag(V_CONSISTENCY.write(verbose()).f64(stdDev));
             }
         }
@@ -231,28 +286,26 @@ public class AutoTotem extends Check implements PacketReceiveListener, PacketSen
         lastPopTime = 0;
         totemPickupTimestamp = 0;
         wasCarryingTotem = false;
-        recentIntervals.clear();
+        intervalCount = 0;
+        intervalIndex = 0;
     }
 
     private OffhandAction getOffhandAction(WrapperPlayClientClickWindow click) {
-        if (click.getWindowId() != 0) return null;
+        if (click.getWindowId() != INVENTORY_WINDOW_ID) return null;
 
         if (click.getSlot() == Inventory.SLOT_OFFHAND) {
             ItemStack carried = click.getCarriedItemStack();
             if (carried == null || carried.isEmpty()) {
                 carried = player.inventory.inventory.getCarried();
             }
-            if (isDeathProtection(carried) || tracking) {
-                return new OffhandAction(true);
-            }
-            return new OffhandAction(true);
+            return (isDeathProtection(carried) || tracking) ? ACTION_DEATH_PROTECT : ACTION_OTHER;
         }
 
         Optional<Map<Integer, ItemStack>> slots = click.getSlots();
         if (slots.isPresent()) {
             ItemStack item = slots.get().get(Inventory.SLOT_OFFHAND);
             if (item != null) {
-                return new OffhandAction(isDeathProtection(item) || tracking);
+                return (isDeathProtection(item) || tracking) ? ACTION_DEATH_PROTECT : ACTION_OTHER;
             }
         }
 
@@ -260,16 +313,16 @@ public class AutoTotem extends Check implements PacketReceiveListener, PacketSen
         if (hashedSlots != null && hashedSlots.containsKey(Inventory.SLOT_OFFHAND)) {
             Optional<HashedStack> hashed = hashedSlots.get(Inventory.SLOT_OFFHAND);
             boolean isTotem = hashed != null && hashed.isPresent() && hashed.get().getItem() == ItemTypes.TOTEM_OF_UNDYING;
-            return new OffhandAction(isTotem || tracking);
+            return (isTotem || tracking) ? ACTION_DEATH_PROTECT : ACTION_OTHER;
         }
 
-        if (click.getWindowClickType() == WrapperPlayClientClickWindow.WindowClickType.SWAP && click.getButton() == 40) {
+        if (click.getWindowClickType() == WrapperPlayClientClickWindow.WindowClickType.SWAP && click.getButton() == HOTBAR_SWAP_OFFHAND_BUTTON) {
             int hoveredSlot = click.getSlot();
             if (hoveredSlot >= 0 && hoveredSlot < player.inventory.menu.getSlots().size()) {
                 ItemStack hoveredItem = player.inventory.menu.getSlot(hoveredSlot).getItem();
-                return new OffhandAction(isDeathProtection(hoveredItem) || tracking);
+                return (isDeathProtection(hoveredItem) || tracking) ? ACTION_DEATH_PROTECT : ACTION_OTHER;
             }
-            return new OffhandAction(true);
+            return ACTION_DEATH_PROTECT;
         }
 
         return null;

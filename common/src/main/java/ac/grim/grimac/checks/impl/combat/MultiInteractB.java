@@ -9,6 +9,7 @@ import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.anticheat.update.PredictionComplete;
 import com.github.retrooper.packetevents.event.PacketReceiveEvent;
 import com.github.retrooper.packetevents.protocol.packettype.PacketType;
+import com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon;
 import com.github.retrooper.packetevents.util.Vector3d;
 import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientInteractEntity;
 
@@ -16,7 +17,16 @@ import java.util.ArrayList;
 
 @CheckData(name = "MultiInteractB", stableKey = "grim.multiinteract.interact_at_position_changed", description = "Sent multiple entity interaction packets with different hit positions in one tick", experimental = true)
 public class MultiInteractB extends Check implements PacketReceiveListener, PostPredictionListener {
+
     private static final Verbose V = Verbose.of("pos={f64}, {f64}, {f64}, lastPos={f64}, {f64}, {f64}");
+
+    private static final PacketTypeCommon[] HANDLED_PACKETS = new PacketTypeCommon[]{
+            PacketType.Play.Client.INTERACT_ENTITY,
+            PacketType.Play.Client.PLAYER_FLYING,
+            PacketType.Play.Client.PLAYER_POSITION,
+            PacketType.Play.Client.PLAYER_POSITION_AND_ROTATION,
+            PacketType.Play.Client.PLAYER_ROTATION
+    };
 
     private final ArrayList<FlagData> flags = new ArrayList<>();
     private Vector3d lastPos;
@@ -27,13 +37,20 @@ public class MultiInteractB extends Check implements PacketReceiveListener, Post
     }
 
     @Override
+    public PacketTypeCommon[] getHandledPacketTypes() {
+        return HANDLED_PACKETS;
+    }
+
+    @Override
     public void onPacketReceive(PacketReceiveEvent event) {
-        if (event.getPacketType() == PacketType.Play.Client.INTERACT_ENTITY) {
+        final PacketTypeCommon packetType = event.getPacketType();
+
+        if (packetType == PacketType.Play.Client.INTERACT_ENTITY) {
             WrapperPlayClientInteractEntity packet = new WrapperPlayClientInteractEntity(event);
             if (packet.getAction() != WrapperPlayClientInteractEntity.InteractAction.INTERACT_AT) return;
 
             Vector3d pos = packet.getLocation();
-            if (pos == null) return; // shouldn't ever happen, but whatever
+            if (pos == null) return;
 
             if (hasInteracted && !pos.equals(lastPos)) {
                 if (!player.canSkipTicks()) {
@@ -51,16 +68,16 @@ public class MultiInteractB extends Check implements PacketReceiveListener, Post
             hasInteracted = true;
         }
 
-        if (!player.cameraEntity.isSelf() || isTickPacket(event.getPacketType())) {
+        if (!player.cameraEntity.isSelf() || isTickPacket(packetType)) {
             hasInteracted = false;
         }
     }
 
     @Override
     public void onPredictionComplete(PredictionComplete predictionComplete) {
-        if (!player.canSkipTicks()) return;
+        if (flags.isEmpty()) return;
 
-        if (player.isTickingReliablyFor(3)) {
+        if (player.canSkipTicks() && player.isTickingReliablyFor(3)) {
             for (FlagData data : flags) {
                 flag(V.write(verbose())
                         .f64(data.posX()).f64(data.posY()).f64(data.posZ())
