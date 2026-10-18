@@ -68,6 +68,10 @@ public class SetbackTeleportUtil extends GrimProcessor implements PostPrediction
     private SetBackData requiredSetBack = null;
     private long lastWorldResync = 0;
 
+    public boolean hasPendingSetback() {
+        return requiredSetBack != null && !requiredSetBack.isComplete();
+    }
+
     public SetbackTeleportUtil(GrimPlayer player) {
         super(player);
     }
