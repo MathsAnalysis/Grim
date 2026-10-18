@@ -125,15 +125,25 @@ public class MovementCheckRunner extends GrimProcessor {
             }
         }
 
+        player.fallDistance = 0;
         player.uncertaintyHandler.lastTeleportTicks.reset();
+        if (player.uncertaintyHandler.lastEnderPearlThrow.hasOccurredSince(120)) {
+            player.uncertaintyHandler.lastEnderPearlTeleport.reset();
+        }
 
-        // Teleports OVERRIDE explosions and knockback
         player.checkManager.getExplosionHandler().forceExempt();
         player.checkManager.getKnockbackHandler().forceExempt();
+        player.likelyKB = null;
+        player.firstBreadKB = null;
+        player.likelyExplosions = null;
+        player.firstBreadExplosion = null;
 
         player.boundingBox = GetBoundingBox.getCollisionBoxForPlayer(player, player.x, player.y, player.z);
 
-        // Manually call prediction complete to handle teleport
+        boolean onGround = update.isOnGround() || Collisions.slowCouldPointThreeHitGround(player, player.x, player.y, player.z);
+        player.onGround = onGround;
+        player.lastOnGround = onGround;
+
         PredictionComplete predictionComplete = new PredictionComplete(0, update, true);
         player.getSetbackTeleportUtil().onPredictionComplete(predictionComplete);
         player.checkManager.get(Phase.class).onPredictionComplete(predictionComplete);
@@ -595,13 +605,7 @@ public class MovementCheckRunner extends GrimProcessor {
                     && ((setbackVel != null && setbackVel.getY() >= 0) || !Collisions.slowCouldPointThreeHitGround(player, player.lastX, player.lastY, player.lastZ))) {
                 player.getSetbackTeleportUtil().executeForceResync();
             }
-            boolean lavaBugFix = player.wasTouchingLava && player.predictedVelocity.isJump() &&
-                    player.predictedVelocity.vector.getY() < 0.06 && player.predictedVelocity.vector.getY() > -0.02;
-            // Player ignored the knockback or is delaying it a tick... bad!
-            if (!player.predictedVelocity.isKnockback() && !lavaBugFix && player.getSetbackTeleportUtil().getRequiredSetBack().getVelocity() != null) {
-                // And then send it again!
-                player.getSetbackTeleportUtil().executeForceResync();
-            }
+
         }
 
         // Let's hope this doesn't desync :)

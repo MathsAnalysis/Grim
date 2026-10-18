@@ -64,6 +64,18 @@ public class OffsetHandler extends Check implements PostPredictionListener {
             return;
         }
 
+        if (player.uncertaintyHandler.lastEnderPearlTeleport.hasOccurredSince(40)) {
+            removeOffsetLenience();
+            decayAdvantage();
+            return;
+        }
+
+        if (player.uncertaintyHandler.lastTeleportTicks.hasOccurredSince(5)) {
+            removeOffsetLenience();
+            decayAdvantage();
+            return;
+        }
+
         if (offset >= threshold || offset >= immediateSetbackThreshold) {
             handleViolation(predictionComplete, offset);
         } else {

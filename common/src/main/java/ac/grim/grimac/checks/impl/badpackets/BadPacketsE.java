@@ -9,22 +9,12 @@ import com.github.retrooper.packetevents.PacketEvents;
 import com.github.retrooper.packetevents.event.PacketReceiveEvent;
 import com.github.retrooper.packetevents.manager.server.ServerVersion;
 import com.github.retrooper.packetevents.protocol.packettype.PacketType;
-import com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon;
 import com.github.retrooper.packetevents.protocol.player.ClientVersion;
 import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientPlayerFlying;
 
 @CheckData(name = "BadPacketsE", stableKey = "grim.badpackets.invalid_position", description = "Sent too many movement packets without updating position")
 public class BadPacketsE extends Check implements PacketReceiveListener {
-
     private static final Verbose V = Verbose.of("ticks={uint}");
-
-    private static final PacketTypeCommon[] HANDLED_PACKETS = new PacketTypeCommon[]{
-            PacketType.Play.Client.PLAYER_POSITION_AND_ROTATION,
-            PacketType.Play.Client.PLAYER_POSITION,
-            PacketType.Play.Client.PLAYER_ROTATION,
-            PacketType.Play.Client.PLAYER_FLYING,
-            PacketType.Play.Client.STEER_VEHICLE
-    };
 
     private int noReminderTicks;
     private final int maxNoReminderTicks = player.getClientVersion().isOlderThanOrEquals(ClientVersion.V_1_8) ? 20 : 19;
@@ -35,22 +25,17 @@ public class BadPacketsE extends Check implements PacketReceiveListener {
     }
 
     @Override
-    public PacketTypeCommon[] getHandledPacketTypes() {
-        return HANDLED_PACKETS;
-    }
-
-    @Override
     public void onPacketReceive(PacketReceiveEvent event) {
-        final PacketTypeCommon packetType = event.getPacketType();
-
-        if (packetType == PacketType.Play.Client.PLAYER_POSITION_AND_ROTATION || packetType == PacketType.Play.Client.PLAYER_POSITION) {
+        if (event.getPacketType() == PacketType.Play.Client.PLAYER_POSITION_AND_ROTATION ||
+                event.getPacketType() == PacketType.Play.Client.PLAYER_POSITION) {
             noReminderTicks = 0;
-        } else if (WrapperPlayClientPlayerFlying.isFlying(packetType) && !player.packetStateData.lastPacketWasTeleport) {
+        } else if (WrapperPlayClientPlayerFlying.isFlying(event.getPacketType()) && !player.packetStateData.lastPacketWasTeleport) {
             if (++noReminderTicks > maxNoReminderTicks) {
                 flag(V.write(verbose()).uint(noReminderTicks));
             }
-        } else if (packetType == PacketType.Play.Client.STEER_VEHICLE || (isViaPleaseStopUsingProtocolHacksOnYourServer && player.inVehicle())) {
-            noReminderTicks = 0;
+        } else if (event.getPacketType() == PacketType.Play.Client.STEER_VEHICLE
+                || (isViaPleaseStopUsingProtocolHacksOnYourServer && player.inVehicle())) {
+            noReminderTicks = 0; // Exempt vehicles
         }
     }
 

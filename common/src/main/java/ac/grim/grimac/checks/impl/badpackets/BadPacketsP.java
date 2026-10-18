@@ -10,40 +10,20 @@ import ac.grim.grimac.player.GrimPlayer;
 import com.github.retrooper.packetevents.event.PacketReceiveEvent;
 import com.github.retrooper.packetevents.event.PacketSendEvent;
 import com.github.retrooper.packetevents.protocol.packettype.PacketType;
-import com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon;
 import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientClickWindow;
 import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientClickWindow.WindowClickType;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerOpenWindow;
 
 @CheckData(name = "BadPacketsP", stableKey = "grim.badpackets.invalid_click", description = "Invalid window click packet", experimental = true)
 public class BadPacketsP extends Check implements PacketReceiveListener, PacketSendListener {
-
     private static final Verbose V =
             Verbose.of("clickType={clicktype_lower}, button={sint}[, container={sint}]");
-
-    private static final PacketTypeCommon[] RECEIVE_PACKETS = new PacketTypeCommon[]{
-            PacketType.Play.Client.CLICK_WINDOW
-    };
-
-    private static final PacketTypeCommon[] SEND_PACKETS = new PacketTypeCommon[]{
-            PacketType.Play.Server.OPEN_WINDOW
-    };
 
     private int containerType = -1;
     private int containerId = -1;
 
     public BadPacketsP(GrimPlayer player) {
         super(player);
-    }
-
-    @Override
-    public PacketTypeCommon[] getHandledPacketTypes() {
-        return RECEIVE_PACKETS;
-    }
-
-    @Override
-    public PacketTypeCommon[] getHandledSendPacketTypes() {
-        return SEND_PACKETS;
     }
 
     @Override
@@ -62,6 +42,7 @@ public class BadPacketsP extends Check implements PacketReceiveListener, PacketS
             WindowClickType clickType = wrapper.getWindowClickType();
             int button = wrapper.getButton();
 
+            // TODO: Adjust for containers
             boolean flag = switch (clickType) {
                 case PICKUP, QUICK_MOVE, CLONE -> button > 2 || button < 0;
                 case SWAP -> (button > 8 || button < 0) && button != 40;
@@ -71,6 +52,7 @@ public class BadPacketsP extends Check implements PacketReceiveListener, PacketS
                 case UNKNOWN -> true;
             };
 
+            // Allowing this to false flag to debug and find issues faster
             if (flag) {
                 boolean hasContainer = wrapper.getWindowId() == containerId;
                 if (flag(V.write(verbose()).uint(VerboseCodecs.enumId(clickType)).sint(button).bool(hasContainer).sint(containerType))

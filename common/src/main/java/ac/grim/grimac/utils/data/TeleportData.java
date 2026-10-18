@@ -33,36 +33,33 @@ public class TeleportData {
 
             if (!isRelativeY()) {
                 vector.setY(0);
-                player.lastWasClimbing = 0; // Vertical movement reset
-                player.canSwimHop = false; // Vertical movement reset
+                player.lastWasClimbing = 0;
+                player.canSwimHop = false;
             }
 
             if (!isRelativeZ()) {
                 vector.setZ(0);
             }
-        }
-
-        if (velocity != null && isStupidTeleportSystem) {
-            // WHAT WAS MOJANG THINKING MAKING TELEPORTS A REPLACEMENT PACKET FOR EXPLOSION VELOCITY /s
+        } else {
+            Vector3d vel = velocity != null ? velocity : Vector3d.zero();
             if (isRelativeDeltaX()) {
-                vector.setX(vector.getX() + velocity.getX());
+                vector.setX(vector.getX() + vel.getX());
             } else {
-                vector.setX(velocity.getX());
+                vector.setX(vel.getX());
             }
 
             if (isRelativeDeltaY()) {
-                vector.setY(vector.getY() + velocity.getY());
+                vector.setY(vector.getY() + vel.getY());
             } else {
-                vector.setY(velocity.getY());
-                // Is this correct? Don't know don't care.
-                player.lastWasClimbing = 0; // Vertical movement reset
-                player.canSwimHop = false; // Vertical movement reset
+                vector.setY(vel.getY());
+                player.lastWasClimbing = 0;
+                player.canSwimHop = false;
             }
 
             if (isRelativeDeltaZ()) {
-                vector.setZ(vector.getZ() + velocity.getZ());
+                vector.setZ(vector.getZ() + vel.getZ());
             } else {
-                vector.setZ(velocity.getZ());
+                vector.setZ(vel.getZ());
             }
         }
     }

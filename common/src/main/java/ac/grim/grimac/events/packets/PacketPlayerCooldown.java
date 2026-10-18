@@ -27,7 +27,10 @@ public class PacketPlayerCooldown extends PacketListenerAbstract {
             if (cooldown.getCooldownTicks() == 0) { // for removing the cooldown
                 player.latencyUtils.addRealTimeTask(lastTransactionSent + 1,
                         () -> player.checkManager.getCompensatedCooldown().removeCooldown(cooldown.getCooldownGroup()));
-            } else { // Not for removing the cooldown
+            } else {
+                if (cooldown.getCooldownGroup() != null && cooldown.getCooldownGroup().toString().contains("ender_pearl")) {
+                    player.uncertaintyHandler.lastEnderPearlThrow.reset();
+                }
                 player.latencyUtils.addRealTimeTask(lastTransactionSent,
                         () -> player.checkManager.getCompensatedCooldown().addCooldown(
                                 cooldown.getCooldownGroup(),
