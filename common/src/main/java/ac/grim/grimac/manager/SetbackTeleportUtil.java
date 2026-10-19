@@ -309,6 +309,12 @@ public class SetbackTeleportUtil extends GrimProcessor implements PostPrediction
      * @param z - Player Z position
      * @return - Whether the player has completed a teleport by being at this position
      */
+    private final ConcurrentLinkedQueue<Integer> confirmedTeleports = new ConcurrentLinkedQueue<>();
+
+    public void onTeleportConfirm(int teleportId) {
+        confirmedTeleports.add(teleportId);
+    }
+
     public TeleportAcceptData checkTeleportQueue(double x, double y, double z, float yaw, float pitch) {
         return checkTeleportQueue(x, y, z, yaw, pitch, null);
     }
@@ -331,13 +337,27 @@ public class SetbackTeleportUtil extends GrimProcessor implements PostPrediction
             // There seems to be a version difference in teleports past 30 million... just clamp the vector
             Vector3d clamped = VectorUtils.clampVector(new Vector3d(trueTeleportX, trueTeleportY, trueTeleportZ));
             double threshold = teleportPos.isRelativePos() ? player.getMovementThreshold() : 0;
+            boolean closeEnoughX = Math.abs(clamped.getX() - x) <= 1e-7 + threshold;
             boolean closeEnoughY = Math.abs(clamped.getY() - y) <= 1e-7 + threshold; // 1.7 rounding
+            boolean closeEnoughZ = Math.abs(clamped.getZ() - z) <= 1e-7 + threshold;
             // rotations are updated every frame, we can't accurately check them if they're relative
             boolean correctRotations = (yaw == teleportPos.getYaw() || teleportPos.isRelativeYaw())
                     && (pitch == teleportPos.getPitch() || teleportPos.isRelativePitch());
+            boolean positionChangedFromCurrent = Math.abs(clamped.getX() - player.x) > 1e-7
+                    || Math.abs(clamped.getY() - player.y) > 1e-7
+                    || Math.abs(clamped.getZ() - player.z) > 1e-7;
+            boolean idConfirmed = (teleportId != null && teleportId.equals(teleportPos.getTeleportId()))
+                    || confirmedTeleports.contains(teleportPos.getTeleportId());
+            boolean transactionReached = player.lastTransactionReceived.get() >= teleportPos.getTransaction()
+                    || idConfirmed
+                    || (!teleportPos.isRelativePos() && positionChangedFromCurrent && player.lastTransactionReceived.get() + 1 >= teleportPos.getTransaction());
 
-            if ((teleportId == null || teleportId.equals(teleportPos.getTeleportId())) && player.lastTransactionReceived.get() == teleportPos.getTransaction() && Math.abs(clamped.getX() - x) <= threshold && closeEnoughY && Math.abs(clamped.getZ() - z) <= threshold && correctRotations) {
+            if ((teleportId == null || teleportId.equals(teleportPos.getTeleportId()))
+                    && transactionReached
+                    && closeEnoughX && closeEnoughY && closeEnoughZ
+                    && (correctRotations || positionChangedFromCurrent || idConfirmed)) {
                 pendingTeleports.poll();
+                confirmedTeleports.remove(teleportPos.getTeleportId());
                 hasAcceptedSpawnTeleport = true;
                 blockOffsets = false;
 
@@ -355,9 +375,12 @@ public class SetbackTeleportUtil extends GrimProcessor implements PostPrediction
                 // The player ignored the teleport (and this teleport matters), resynchronize
                 player.checkManager.get(BadPacketsN.class).flag();
                 pendingTeleports.poll();
-                requiredSetBack.setPlugin(false);
-                if (pendingTeleports.isEmpty()) {
-                    sendSetback(requiredSetBack);
+                confirmedTeleports.remove(teleportPos.getTeleportId());
+                if (requiredSetBack != null) {
+                    requiredSetBack.setPlugin(false);
+                    if (pendingTeleports.isEmpty()) {
+                        sendSetback(requiredSetBack);
+                    }
                 }
                 continue;
             }

@@ -25,23 +25,29 @@ public class TeleportData {
     private int teleportId;
 
     public void modifyVector(@NotNull GrimPlayer player, Vector3dm vector) {
+        Vector3d vel = velocity != null ? velocity : Vector3d.zero();
         final boolean isStupidTeleportSystem = player.supportsEndTick();
         if (!isStupidTeleportSystem) {
             if (!isRelativeX()) {
-                vector.setX(0);
+                vector.setX(vel.getX());
+            } else if (vel.getX() != 0) {
+                vector.setX(vector.getX() + vel.getX());
             }
 
             if (!isRelativeY()) {
-                vector.setY(0);
+                vector.setY(vel.getY());
                 player.lastWasClimbing = 0;
                 player.canSwimHop = false;
+            } else if (vel.getY() != 0) {
+                vector.setY(vector.getY() + vel.getY());
             }
 
             if (!isRelativeZ()) {
-                vector.setZ(0);
+                vector.setZ(vel.getZ());
+            } else if (vel.getZ() != 0) {
+                vector.setZ(vector.getZ() + vel.getZ());
             }
         } else {
-            Vector3d vel = velocity != null ? velocity : Vector3d.zero();
             if (isRelativeDeltaX()) {
                 vector.setX(vector.getX() + vel.getX());
             } else {

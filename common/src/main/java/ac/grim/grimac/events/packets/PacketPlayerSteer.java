@@ -79,6 +79,7 @@ public class PacketPlayerSteer extends PacketListenerAbstract {
                 player.isSneaking = input.isShift();
             }
 
+            player.packetStateData.receivedPlayerInput = true;
             player.packetStateData.knownInput = new KnownInput(input.isForward(), input.isBackward(), input.isLeft(), input.isRight(), input.isJump(), input.isShift(), input.isSprint());
         } else if (event.getPacketType() == PacketType.Play.Client.PLAYER_ROTATION) {
             GrimPlayer player = GrimAPI.INSTANCE.getPlayerDataManager().getPlayer(event.getUser());

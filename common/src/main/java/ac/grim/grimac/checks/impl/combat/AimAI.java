@@ -45,7 +45,7 @@ public class AimAI extends Check implements RotationListener, PacketReceiveListe
 
     private record TargetData(double angle, double yawError, double targetX, double targetZ) {}
 
-    private record Sample(
+    public record Sample(
             float deltaYaw,
             float deltaPitch,
             float rawYaw,
@@ -57,11 +57,16 @@ public class AimAI extends Check implements RotationListener, PacketReceiveListe
             double playerX,
             double playerZ,
             double gcdError,
-            boolean isSignFlip,
+            boolean isYawSignFlip,
+            boolean isPitchSignFlip,
             double jerk,
             boolean attacked,
             int targetEntityId
-    ) {}
+    ) {
+        public boolean isSignFlip() {
+            return isYawSignFlip || isPitchSignFlip;
+        }
+    }
 
     private final Deque<Sample> samples = new ArrayDeque<>(WINDOW_SIZE);
 
@@ -110,7 +115,8 @@ public class AimAI extends Check implements RotationListener, PacketReceiveListe
         float deltaYaw = update.deltaYawABS();
         float deltaPitch = update.deltaPitchABS();
 
-        boolean isSignFlip = (update.deltaYaw() * prevDeltaYaw < 0) || (update.deltaPitch() * prevDeltaPitch < 0);
+        boolean isYawSignFlip = (update.deltaYaw() * prevDeltaYaw < 0);
+        boolean isPitchSignFlip = (update.deltaPitch() * prevDeltaPitch < 0);
         double currentAccel = Math.abs(deltaYaw - prevDeltaYaw);
         double jerk = Math.abs(currentAccel - prevJerk);
 
@@ -129,7 +135,8 @@ public class AimAI extends Check implements RotationListener, PacketReceiveListe
                 player.x,
                 player.z,
                 gcdError,
-                isSignFlip,
+                isYawSignFlip,
+                isPitchSignFlip,
                 jerk,
                 attackedThisTick,
                 lastTargetEntityId
@@ -243,6 +250,70 @@ public class AimAI extends Check implements RotationListener, PacketReceiveListe
             return;
         }
 
+        AimProcessor aimProcessor = player.checkManager.get(AimProcessor.class);
+        AIFeatures features = computeFeatures(sampleArr, aimProcessor);
+
+        this.latestScore = features.score();
+        this.latestFeatures = features;
+
+        boolean justFinishedAttack = (sampleArr.length >= 2) && sampleArr[sampleArr.length - 2].attacked();
+
+        if (justFinishedAttack) {
+            boolean activeVertical = isVerticalMovementActive(sampleArr);
+            int strongCount = countStrongIndicators(features);
+            scoreBuffer = updateBuffer(scoreBuffer, features.score(), true, activeVertical, strongCount);
+
+            if (scoreBuffer >= 2.5) {
+                flag(V_AI.write(verbose())
+                        .f64(features.score())
+                        .f64(features.snapBack())
+                        .f64(features.continuousLock())
+                        .f64(features.impulseSnap())
+                        .f64(features.roboticSmoothness()));
+                scoreBuffer = Math.min(scoreBuffer, 4.0);
+            }
+        }
+    }
+
+    public static AIFeatures computeFeatures(Sample[] sampleArr, AimProcessor aimProcessor) {
+        double divisor = 0.0;
+        if (aimProcessor != null) {
+            divisor = aimProcessor.modeYaw;
+            if (divisor <= GrimMath.MINIMUM_DIVISOR) {
+                divisor = aimProcessor.modePitch;
+            }
+        }
+        return computeFeatures(sampleArr, divisor);
+    }
+
+    public static AIFeatures computeFeatures(Sample[] sampleArr, double divisor) {
+        int n = (sampleArr != null) ? sampleArr.length : 0;
+        if (n < MIN_SAMPLES) {
+            return new AIFeatures(0.0, 0, 0, 0, 0, 0, 0, 0, 0, n);
+        }
+
+        int pitchFlips = 0;
+        float maxPitchDelta = 0.0f;
+        double sumPitchDelta = 0.0;
+        for (Sample s : sampleArr) {
+            float dp = s.deltaPitch();
+            sumPitchDelta += dp;
+            if (dp > maxPitchDelta) maxPitchDelta = dp;
+            if (s.isPitchSignFlip()) pitchFlips++;
+        }
+        double meanDeltaPitch = sumPitchDelta / n;
+
+        double sumSqPitch = 0.0;
+        for (Sample s : sampleArr) {
+            double diff = s.deltaPitch() - meanDeltaPitch;
+            sumSqPitch += diff * diff;
+        }
+        double stdDeltaPitch = Math.sqrt(sumSqPitch / n);
+
+        boolean activeVerticalMovement = (pitchFlips >= 2 && maxPitchDelta > 3.5f)
+                || (stdDeltaPitch > 2.0 && meanDeltaPitch > 1.5)
+                || (maxPitchDelta > 8.0f);
+
         double sumAngle = 0.0;
         int trackedCount = 0;
         for (Sample s : sampleArr) {
@@ -259,24 +330,39 @@ public class AimAI extends Check implements RotationListener, PacketReceiveListe
             Sample curr = sampleArr[i];
             Sample next = sampleArr[i + 1];
 
-            boolean snapOnCurr = curr.attacked() && curr.deltaYaw() > 8.0f && curr.yawError() < 1.5 && prev.yawError() > 7.0;
-            boolean snapOnPrev = curr.attacked() && prev.deltaYaw() > 8.0f && curr.yawError() < 1.5 && (i >= 2 ? sampleArr[i - 2].yawError() > 7.0 : prev.yawError() > 7.0);
+            if (!curr.attacked()) continue;
+
+            if (activeVerticalMovement || curr.deltaPitch() > 4.0f || prev.deltaPitch() > 4.0f || next.deltaPitch() > 4.0f) {
+                continue;
+            }
+
+            boolean snapOnCurr = curr.deltaYaw() > 14.0f
+                    && curr.yawError() < 1.2 && curr.angleToTarget() < 1.5
+                    && (prev.yawError() > 8.0 || prev.angleToTarget() > 10.0);
+
+            Sample prev2 = (i >= 2) ? sampleArr[i - 2] : null;
+            boolean snapOnPrev = prev.deltaYaw() > 14.0f
+                    && curr.yawError() < 1.2 && curr.angleToTarget() < 1.5
+                    && (prev2 != null ? (prev2.yawError() > 8.0 || prev2.angleToTarget() > 10.0) : prev.yawError() > 8.0);
 
             if (snapOnCurr) {
-                boolean humanFlick = prev.deltaYaw() >= 4.0f || (next.deltaYaw() >= 3.0f && next.yawError() > 2.0);
-                if (!humanFlick) {
+                boolean humanPreMovement = prev.deltaYaw() >= 4.0f;
+                boolean humanPostMovement = next.deltaYaw() >= 3.0f;
+                if (!humanPreMovement && !humanPostMovement && curr.jerk() > 8.0) {
                     impulseCount++;
                 }
             } else if (snapOnPrev) {
-                Sample prev2 = i >= 2 ? sampleArr[i - 2] : null;
-                boolean humanFlick = (prev2 != null && prev2.deltaYaw() >= 4.0f) || (curr.deltaYaw() >= 3.0f && curr.yawError() > 2.0);
-                if (!humanFlick) {
+                boolean humanPreMovement = (prev2 != null && prev2.deltaYaw() >= 4.0f);
+                boolean humanPostMovement = curr.deltaYaw() >= 3.0f;
+                if (!humanPreMovement && !humanPostMovement) {
                     impulseCount++;
                 }
             }
         }
-        if (impulseCount >= 1) {
-            impulseSnap = Math.min(1.0, 0.75 + impulseCount * 0.20);
+        if (impulseCount >= 2) {
+            impulseSnap = Math.min(1.0, 0.75 + (impulseCount - 1) * 0.20);
+        } else if (impulseCount == 1) {
+            impulseSnap = 0.40;
         }
 
         double snapBack = 0.0;
@@ -285,53 +371,121 @@ public class AimAI extends Check implements RotationListener, PacketReceiveListe
             Sample prev = sampleArr[i - 1];
             Sample curr = sampleArr[i];
             Sample next = sampleArr[i + 1];
-            if (curr.attacked() && (curr.deltaYaw() > 7.0f || prev.deltaYaw() > 7.0f) && curr.yawError() < 2.0) {
-                if (next.isSignFlip() && next.deltaYaw() > 6.0f) {
-                    float returnDiff = Math.abs((next.rawYaw() - prev.rawYaw()) % 360.0f);
-                    if (returnDiff > 180.0f) returnDiff = 360.0f - returnDiff;
-                    if (returnDiff < 10.0f) {
-                        silentCount++;
-                    }
-                }
+
+            if (!curr.attacked()) continue;
+
+            boolean yawSnappedOntoTarget = (curr.deltaYaw() > 8.0f || prev.deltaYaw() > 8.0f)
+                    && curr.yawError() < 1.5 && curr.angleToTarget() < 3.0
+                    && (prev.yawError() > 4.0 || prev.angleToTarget() > 5.0);
+
+            boolean yawReversed = next.isYawSignFlip() && next.deltaYaw() > 6.0f;
+
+            float returnDiffYaw = Math.abs((next.rawYaw() - prev.rawYaw()) % 360.0f);
+            if (returnDiffYaw > 180.0f) returnDiffYaw = 360.0f - returnDiffYaw;
+            boolean returnedYaw = returnDiffYaw < 6.0f && next.yawError() > 2.5;
+
+            boolean verticalInterference = activeVerticalMovement
+                    || curr.deltaPitch() > 5.0f || prev.deltaPitch() > 5.0f || next.deltaPitch() > 5.0f;
+
+            if (yawSnappedOntoTarget && yawReversed && returnedYaw && !verticalInterference) {
+                silentCount++;
+                continue;
+            }
+
+            boolean pitchSnappedOntoTarget = (curr.deltaPitch() > 8.0f || prev.deltaPitch() > 8.0f)
+                    && curr.angleToTarget() < 2.5
+                    && (prev.angleToTarget() > 6.0);
+            boolean pitchReversed = next.isPitchSignFlip() && next.deltaPitch() > 6.0f;
+            float returnDiffPitch = Math.abs(next.rawPitch() - prev.rawPitch());
+            boolean returnedPitch = returnDiffPitch < 5.0f && next.angleToTarget() > 3.0;
+
+            if (pitchSnappedOntoTarget && pitchReversed && returnedPitch) {
+                silentCount++;
             }
         }
-        if (silentCount >= 1) {
-            snapBack = Math.min(1.0, 0.80 + silentCount * 0.20);
+        if (silentCount >= 2) {
+            snapBack = Math.min(1.0, 0.75 + (silentCount - 1) * 0.20);
+        } else if (silentCount == 1) {
+            snapBack = 0.50;
         }
 
         double continuousLock = 0.0;
-        int attackHits = 0;
-        double maxYawError = 0.0;
-        double sumYawError = 0.0;
-        for (Sample s : sampleArr) {
-            if (s.attacked() && s.targetEntityId() != -1) {
-                attackHits++;
-                double err = s.yawError();
-                sumYawError += err;
-                if (err > maxYawError) {
-                    maxYawError = err;
+        if (!activeVerticalMovement && stdDeltaPitch < 1.5) {
+            int currentStreak = 0;
+            int maxStreak = 0;
+            int streakStartIndex = -1;
+            int bestStreakStart = -1;
+
+            for (int i = 0; i < sampleArr.length; i++) {
+                Sample s = sampleArr[i];
+                if (s.angleToTarget() < 3.0 && s.yawError() < 2.0) {
+                    if (currentStreak == 0) streakStartIndex = i;
+                    currentStreak++;
+                    if (currentStreak > maxStreak) {
+                        maxStreak = currentStreak;
+                        bestStreakStart = streakStartIndex;
+                    }
+                } else {
+                    currentStreak = 0;
+                }
+            }
+
+            int attackHitsInStreak = 0;
+            if (maxStreak >= 6 && bestStreakStart >= 0) {
+                int streakEnd = Math.min(sampleArr.length, bestStreakStart + maxStreak + 1);
+                int start = Math.max(0, bestStreakStart - 1);
+                for (int i = start; i < streakEnd; i++) {
+                    if (sampleArr[i].attacked() && sampleArr[i].targetEntityId() != -1) {
+                        attackHitsInStreak++;
+                    }
+                }
+
+                double sumStreakAngle = 0.0;
+                for (int i = bestStreakStart; i < bestStreakStart + maxStreak; i++) {
+                    sumStreakAngle += sampleArr[i].angleToTarget();
+                }
+                double meanStreakAngle = sumStreakAngle / maxStreak;
+                double sumStreakVar = 0.0;
+                for (int i = bestStreakStart; i < bestStreakStart + maxStreak; i++) {
+                    double d = sampleArr[i].angleToTarget() - meanStreakAngle;
+                    sumStreakVar += d * d;
+                }
+                double streakAngleVar = sumStreakVar / maxStreak;
+
+                double totalMovement = 0.0;
+                for (int i = 1; i < sampleArr.length; i++) {
+                    totalMovement += sampleArr[i].deltaYaw() + sampleArr[i].deltaPitch();
+                }
+
+                if (maxStreak >= 8 && attackHitsInStreak >= 2 && streakAngleVar < 0.20 && totalMovement > 5.0) {
+                    continuousLock = 0.90;
+                } else if (maxStreak >= 6 && attackHitsInStreak >= 2 && streakAngleVar < 0.35 && totalMovement > 4.0) {
+                    continuousLock = 0.70;
                 }
             }
         }
-        if (attackHits >= 2) {
-            if (maxYawError < 1.2) {
-                continuousLock = 0.95;
-            } else if (maxYawError < 1.8 && (sumYawError / attackHits) < 1.2) {
-                continuousLock = 0.75;
-            }
-        }
 
-        int constantSpeedCount = 0;
-        for (int i = 1; i < sampleArr.length; i++) {
-            float d1 = sampleArr[i].deltaYaw();
-            float d0 = sampleArr[i - 1].deltaYaw();
-            if (d1 > 2.0f && Math.abs(d1 - d0) < 0.02f && sampleArr[i].angleToTarget() < 8.0) {
-                constantSpeedCount++;
-            }
-        }
         double roboticSmoothness = 0.0;
-        if (constantSpeedCount >= 2 && trackedCount >= 4) {
-            roboticSmoothness = Math.min(1.0, constantSpeedCount * 0.45);
+        if (!activeVerticalMovement && stdDeltaPitch < 1.0) {
+            int consecutiveConstant = 0;
+            int maxConsecutiveConstant = 0;
+            for (int i = 1; i < sampleArr.length; i++) {
+                float d1 = sampleArr[i].deltaYaw();
+                float d0 = sampleArr[i - 1].deltaYaw();
+                if (d1 > 2.0f && Math.abs(d1 - d0) < 0.015f && sampleArr[i].angleToTarget() < 6.0 && sampleArr[i].deltaPitch() < 0.4f) {
+                    consecutiveConstant++;
+                    if (consecutiveConstant > maxConsecutiveConstant) {
+                        maxConsecutiveConstant = consecutiveConstant;
+                    }
+                } else {
+                    consecutiveConstant = 0;
+                }
+            }
+            if (maxConsecutiveConstant >= 5) {
+                roboticSmoothness = 0.85;
+            } else if (maxConsecutiveConstant >= 4) {
+                roboticSmoothness = 0.60;
+            }
         }
 
         double switchSnap = 0.0;
@@ -342,7 +496,7 @@ public class AimAI extends Check implements RotationListener, PacketReceiveListe
             if (s1.attacked() && s2.attacked()
                     && s1.targetEntityId() != -1 && s2.targetEntityId() != -1
                     && s1.targetEntityId() != s2.targetEntityId()
-                    && s2.deltaYaw() > 15.0f && s2.yawError() < 2.0) {
+                    && s2.deltaYaw() > 16.0f && s2.yawError() < 1.5 && s2.angleToTarget() < 2.5) {
                 switchCount++;
             }
         }
@@ -356,11 +510,7 @@ public class AimAI extends Check implements RotationListener, PacketReceiveListe
 
         double pitchFreeze = 0.0;
         if (trackedCount >= 6 && meanYaw > 4.0) {
-            float maxPitch = 0.0f;
-            for (Sample s : sampleArr) {
-                if (s.deltaPitch() > maxPitch) maxPitch = s.deltaPitch();
-            }
-            if (maxPitch < 0.0001f) {
+            if (maxPitchDelta < 0.0001f) {
                 pitchFreeze = 0.85;
             }
         }
@@ -385,13 +535,12 @@ public class AimAI extends Check implements RotationListener, PacketReceiveListe
                 : 0.0;
 
         double linearTracking = 0.0;
-        if (trackedCount >= 6 && stdYaw > 1.2 && stdPitch > 1.2 && linearity > 0.999 && (sumYaw + sumPitch) > 20.0) {
-            linearTracking = 0.80;
+        if (!activeVerticalMovement && trackedCount >= 8 && stdYaw > 1.2 && stdPitch > 1.2 && linearity > 0.9995 && (sumYaw + sumPitch) > 25.0) {
+            linearTracking = 0.60;
         }
 
         double gcdAnomaly = 0.0;
-        AimProcessor aimProcessor = player.checkManager.get(AimProcessor.class);
-        if (aimProcessor != null && aimProcessor.modeYaw > 0.005) {
+        if (divisor > 0.005) {
             int gcdEvaluated = 0;
             int gcdViolations = 0;
             for (Sample s : sampleArr) {
@@ -417,28 +566,121 @@ public class AimAI extends Check implements RotationListener, PacketReceiveListe
         x[6] = linearTracking;
         x[7] = gcdAnomaly;
 
-        double score = AimAIModel.predict(x);
-        this.latestScore = score;
-        this.latestFeatures = new AIFeatures(score, impulseSnap, snapBack, continuousLock, roboticSmoothness, switchSnap, pitchFreeze, linearTracking, gcdAnomaly, n);
+        double rawModelScore = AimAIModel.predict(x);
 
-        boolean justFinishedAttack = (sampleArr.length >= 2) && sampleArr[sampleArr.length - 2].attacked();
+        int strongCount = 0;
+        if (impulseSnap >= 0.70) strongCount++;
+        if (snapBack >= 0.70) strongCount++;
+        if (continuousLock >= 0.70) strongCount++;
+        if (roboticSmoothness >= 0.70) strongCount++;
+        if (switchSnap >= 0.70) strongCount++;
+        if (pitchFreeze >= 0.70) strongCount++;
+        if (gcdAnomaly >= 0.40) strongCount++;
 
-        if (justFinishedAttack) {
-            if (score >= 0.50) {
-                scoreBuffer += (score - 0.30) * 3.5;
-                if (scoreBuffer >= 1.2) {
-                    flag(V_AI.write(verbose())
-                            .f64(score)
-                            .f64(snapBack)
-                            .f64(continuousLock)
-                            .f64(impulseSnap)
-                            .f64(roboticSmoothness));
-                    scoreBuffer = Math.min(scoreBuffer, 3.0);
-                }
-            } else if (score < 0.25) {
-                scoreBuffer = Math.max(0.0, scoreBuffer - 0.40);
-            }
+        int moderateCount = 0;
+        if (impulseSnap >= 0.35) moderateCount++;
+        if (snapBack >= 0.35) moderateCount++;
+        if (continuousLock >= 0.35) moderateCount++;
+        if (roboticSmoothness >= 0.35) moderateCount++;
+        if (switchSnap >= 0.35) moderateCount++;
+        if (pitchFreeze >= 0.35) moderateCount++;
+        if (linearTracking >= 0.50) moderateCount++;
+        if (gcdAnomaly >= 0.20) moderateCount++;
+
+        double finalScore;
+        if (strongCount >= 2 || (strongCount >= 1 && moderateCount >= 2)) {
+            finalScore = rawModelScore;
+        } else if (strongCount == 1 || moderateCount >= 2) {
+            finalScore = Math.min(rawModelScore, 0.45);
+        } else if (moderateCount == 1) {
+            finalScore = Math.min(rawModelScore, 0.25);
+        } else {
+            finalScore = Math.min(rawModelScore, 0.10);
         }
+
+        return new AIFeatures(
+                finalScore,
+                impulseSnap,
+                snapBack,
+                continuousLock,
+                roboticSmoothness,
+                switchSnap,
+                pitchFreeze,
+                linearTracking,
+                gcdAnomaly,
+                n
+        );
+    }
+
+    public static boolean isVerticalMovementActive(Sample[] sampleArr) {
+        if (sampleArr == null || sampleArr.length < 2) return false;
+        int pitchFlips = 0;
+        float maxPitchDelta = 0.0f;
+        double sumPitchDelta = 0.0;
+        for (Sample s : sampleArr) {
+            float dp = s.deltaPitch();
+            sumPitchDelta += dp;
+            if (dp > maxPitchDelta) maxPitchDelta = dp;
+            if (s.isPitchSignFlip()) pitchFlips++;
+        }
+        double meanDeltaPitch = sumPitchDelta / sampleArr.length;
+
+        double sumSqPitch = 0.0;
+        for (Sample s : sampleArr) {
+            double diff = s.deltaPitch() - meanDeltaPitch;
+            sumSqPitch += diff * diff;
+        }
+        double stdDeltaPitch = Math.sqrt(sumSqPitch / sampleArr.length);
+
+        return (pitchFlips >= 2 && maxPitchDelta > 3.5f)
+                || (stdDeltaPitch > 2.0 && meanDeltaPitch > 1.5)
+                || (maxPitchDelta > 8.0f);
+    }
+
+    public static int countStrongIndicators(AIFeatures f) {
+        int count = 0;
+        if (f.impulseSnap() >= 0.70) count++;
+        if (f.snapBack() >= 0.70) count++;
+        if (f.continuousLock() >= 0.70) count++;
+        if (f.roboticSmoothness() >= 0.70) count++;
+        if (f.switchSnap() >= 0.70) count++;
+        if (f.pitchFreeze() >= 0.70) count++;
+        if (f.gcdAnomaly() >= 0.40) count++;
+        return count;
+    }
+
+    public static int countModerateIndicators(AIFeatures f) {
+        int count = 0;
+        if (f.impulseSnap() >= 0.35) count++;
+        if (f.snapBack() >= 0.35) count++;
+        if (f.continuousLock() >= 0.35) count++;
+        if (f.roboticSmoothness() >= 0.35) count++;
+        if (f.switchSnap() >= 0.35) count++;
+        if (f.pitchFreeze() >= 0.35) count++;
+        if (f.linearTracking() >= 0.50) count++;
+        if (f.gcdAnomaly() >= 0.20) count++;
+        return count;
+    }
+
+    public static double updateBuffer(double currentBuffer, double score, boolean justFinishedAttack, boolean activeVertical, int strongCount) {
+        if (!justFinishedAttack) return currentBuffer;
+        if (score >= 0.60) {
+            double scoreDelta = (score - 0.40);
+            double multiplier = (strongCount >= 2) ? 2.0 : 1.2;
+            return Math.min(4.0, currentBuffer + scoreDelta * multiplier);
+        } else if (score < 0.35) {
+            double decayAmount = activeVertical ? 0.75 : 0.40;
+            return Math.max(0.0, currentBuffer - decayAmount);
+        }
+        return currentBuffer;
+    }
+
+    public double getScoreBuffer() {
+        return scoreBuffer;
+    }
+
+    public int getSampleCount() {
+        return samples.size();
     }
 
     public double getLatestScore() {

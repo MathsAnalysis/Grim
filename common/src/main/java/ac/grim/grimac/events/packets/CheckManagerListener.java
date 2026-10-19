@@ -409,6 +409,9 @@ public class CheckManagerListener extends PacketListenerAbstract {
             Vector3d position = VectorUtils.clampVector(new Vector3d(teleportConfirm.getX(), teleportConfirm.getY(), teleportConfirm.getZ()));
             teleportData = player.getSetbackTeleportUtil().checkTeleportQueue(position.getX(), position.getY(), position.getZ(), teleportConfirm.getYaw(), teleportConfirm.getPitch(), teleportConfirm.getTeleportId());
             player.packetStateData.lastPacketWasTeleport = teleportData.isTeleport();
+        } else if (!TELEPORT_CONTAINS_POSITION && event.getPacketType() == PacketType.Play.Client.TELEPORT_CONFIRM) {
+            WrapperPlayClientTeleportConfirm confirm = new WrapperPlayClientTeleportConfirm(event);
+            player.getSetbackTeleportUtil().onTeleportConfirm(confirm.getTeleportId());
         }
 
         WrapperPlayClientPlayerFlying flying = null;
@@ -419,7 +422,9 @@ public class CheckManagerListener extends PacketListenerAbstract {
 
             Location location = flying.getLocation();
             Vector3d position = VectorUtils.clampVector(location.getPosition());
-            teleportData = !TELEPORT_CONTAINS_POSITION ? player.getSetbackTeleportUtil().checkTeleportQueue(position.getX(), position.getY(), position.getZ(), location.getYaw(), location.getPitch()) : TeleportAcceptData.EMPTY;
+            float checkYaw = flying.hasRotationChanged() ? location.getYaw() : player.yaw;
+            float checkPitch = flying.hasRotationChanged() ? location.getPitch() : player.pitch;
+            teleportData = !TELEPORT_CONTAINS_POSITION && flying.hasPositionChanged() ? player.getSetbackTeleportUtil().checkTeleportQueue(position.getX(), position.getY(), position.getZ(), checkYaw, checkPitch) : TeleportAcceptData.EMPTY;
             player.packetStateData.lastPacketWasTeleport = teleportData.isTeleport();
 
             if (flying.hasRotationChanged() && !flying.hasPositionChanged() && !flying.isOnGround() && !flying.isHorizontalCollision()) {
@@ -441,10 +446,14 @@ public class CheckManagerListener extends PacketListenerAbstract {
             }
         }
 
-        if ((teleportConfirm != null && teleportData.isTeleport()) || (player.inVehicle() ? event.getPacketType() == PacketType.Play.Client.VEHICLE_MOVE : flying != null && !player.packetStateData.lastPacketWasOnePointSeventeenDuplicate)) {
+        if (!player.packetStateData.lastPacketWasTeleport && (player.inVehicle() ? event.getPacketType() == PacketType.Play.Client.VEHICLE_MOVE : flying != null && !player.packetStateData.lastPacketWasOnePointSeventeenDuplicate)) {
             // Update knockback and explosions immediately, before anything can setback
             int kbEntityId = player.inVehicle() ? player.getRidingVehicleId() : player.entityID;
             int lastTrans = player.lastTransactionReceived.get();
+            TeleportData pendingTeleport = !player.inVehicle() ? player.getSetbackTeleportUtil().pendingTeleports.peek() : null;
+            if (pendingTeleport != null) {
+                lastTrans = Math.min(lastTrans, pendingTeleport.getTransaction());
+            }
 
             VelocityData calculatedFirstBreadKb = player.checkManager.getKnockbackHandler().calculateFirstBreadKnockback(kbEntityId, lastTrans);
             VelocityData calculatedRequireKb = player.checkManager.getKnockbackHandler().calculateRequiredKB(kbEntityId, lastTrans, false);
@@ -635,6 +644,11 @@ public class CheckManagerListener extends PacketListenerAbstract {
         if (player.inVehicle()) return true;
 
         final Vector3d position = flying.getLocation().getPosition();
+        if (player.uncertaintyHandler.lastTeleportTicks.hasOccurredSince(0)) {
+            return flying.isOnGround() == player.packetStateData.packetPlayerOnGround
+                    && player.filterMojangStupidityOnMojangStupidity.equals(position);
+        }
+
         final double threshold = player.getMovementThreshold();
 
         // ground status will never change in duplicate packets

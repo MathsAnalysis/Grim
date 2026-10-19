@@ -165,6 +165,30 @@ public class ExplosionHandler extends Check implements PacketSendListener, PostP
         }
     }
 
+    public void onTeleport(int teleportTransaction, boolean isRelativeVelocity) {
+        forceExempt();
+        if (!isRelativeVelocity) {
+            firstBreadMap.removeIf(data -> data.transaction < teleportTransaction);
+            if (lastExplosionsKnownTaken != null && lastExplosionsKnownTaken.transaction < teleportTransaction) {
+                lastExplosionsKnownTaken = null;
+            }
+            if (firstBreadAddedExplosion != null && firstBreadAddedExplosion.transaction < teleportTransaction) {
+                firstBreadAddedExplosion = null;
+            }
+        }
+        for (VelocityData data : firstBreadMap) {
+            if (data.transaction == teleportTransaction) {
+                data.offset = 0;
+            }
+        }
+        if (lastExplosionsKnownTaken != null && lastExplosionsKnownTaken.transaction == teleportTransaction) {
+            lastExplosionsKnownTaken.offset = 0;
+        }
+        if (firstBreadAddedExplosion != null && firstBreadAddedExplosion.transaction == teleportTransaction) {
+            firstBreadAddedExplosion.offset = 0;
+        }
+    }
+
     @Override
     public void onPredictionComplete(final PredictionComplete predictionComplete) {
         double offset = predictionComplete.getOffset();

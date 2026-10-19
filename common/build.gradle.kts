@@ -85,12 +85,21 @@ dependencies {
     compileOnly(libs.netty)
     compileOnly(libs.luckperms)
 
+    testImplementation(libs.packetevents.api)
+    testImplementation(libs.netty)
+    testImplementation(libs.grim.internal.shims)
+    testImplementation(libs.viaversion)
+    testImplementation(libs.floodgate.api)
+    testImplementation("net.kyori:adventure-nbt:4.26.1")
+    testImplementation("net.kyori:adventure-text-serializer-gson:4.26.1")
+    testImplementation("net.kyori:adventure-text-serializer-legacy:4.26.1")
     testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
 tasks.test {
     useJUnitPlatform()
+    systemProperty("GrimPlatformOverride", "BUKKIT")
 }
 
 publishing.publications.create<MavenPublication>("maven") {

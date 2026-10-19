@@ -126,13 +126,11 @@ public class KnockbackHandler extends Check implements PacketSendListener, PostP
         while (data != null) {
             if (data.transaction == transactionID) {
                 firstBreadOnlyKnockback = new VelocityData(data.entityID, data.transaction, data.isSetback, data.vector);
+                firstBreadOnlyKnockback.offset = data.offset;
                 break;
             } else if (data.transaction < transactionID) {
                 VelocityData velocityData = new VelocityData(data.entityID, data.transaction, data.isSetback, data.vector);
-
-                if (firstBreadOnlyKnockback != null) {
-                    velocityData.offset = data.offset;
-                }
+                velocityData.offset = data.offset;
 
                 lastKnockbackKnownTaken.add(velocityData);
                 firstBreadOnlyKnockback = null;
@@ -151,6 +149,30 @@ public class KnockbackHandler extends Check implements PacketSendListener, PostP
 
         if (player.likelyKB != null) {
             player.likelyKB.offset = 0;
+        }
+    }
+
+    public void onTeleport(int teleportTransaction, boolean isRelativeVelocity) {
+        forceExempt();
+        if (!isRelativeVelocity) {
+            firstBreadMap.removeIf(data -> data.transaction < teleportTransaction);
+            lastKnockbackKnownTaken.removeIf(data -> data.transaction < teleportTransaction);
+            if (firstBreadOnlyKnockback != null && firstBreadOnlyKnockback.transaction < teleportTransaction) {
+                firstBreadOnlyKnockback = null;
+            }
+        }
+        for (VelocityData data : firstBreadMap) {
+            if (data.transaction == teleportTransaction) {
+                data.offset = 0;
+            }
+        }
+        for (VelocityData data : lastKnockbackKnownTaken) {
+            if (data.transaction == teleportTransaction) {
+                data.offset = 0;
+            }
+        }
+        if (firstBreadOnlyKnockback != null && firstBreadOnlyKnockback.transaction == teleportTransaction) {
+            firstBreadOnlyKnockback.offset = 0;
         }
     }
 

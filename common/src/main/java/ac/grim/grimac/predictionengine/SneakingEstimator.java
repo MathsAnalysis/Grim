@@ -45,6 +45,11 @@ public class SneakingEstimator extends GrimProcessor implements PostPredictionLi
         this.possible = possible;
     }
 
+    public void reset() {
+        this.sneakingPotentialHiddenVelocity = new SimpleCollisionBox();
+        this.possible = new ArrayList<>();
+    }
+
     @Override
     public void onPredictionComplete(final PredictionComplete predictionComplete) {
         if (!predictionComplete.isChecked()) return;

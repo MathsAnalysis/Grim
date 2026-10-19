@@ -316,10 +316,6 @@ public class UncertaintyHandler {
                 offset -= 0.01;
         }
 
-        if (player.uncertaintyHandler.lastTeleportTicks.hasOccurredSince(1)) {
-            offset -= 0.05;
-        }
-
         return Math.max(0, offset);
     }
 

@@ -73,6 +73,8 @@ public final class GrimAPI {
     private static Platform detectPlatform() {
         Platform override = CommonGrimArguments.PLATFORM_OVERRIDE.value();
         if (override != null) return override;
+        String propOverride = System.getProperty("GrimPlatformOverride");
+        if (propOverride != null) return Platform.getByName(propOverride);
         if (ReflectionUtils.hasClass("io.papermc.paper.threadedregions.RegionizedServer")) return Platform.FOLIA;
         if (ReflectionUtils.hasClass("org.bukkit.Bukkit")) return Platform.BUKKIT;
         if (ReflectionUtils.hasClass("net.fabricmc.loader.api.FabricLoader")) return Platform.FABRIC;
