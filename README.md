@@ -17,7 +17,8 @@ l'anticheat open source per Minecraft 1.8–26.3. Il fork si concentra su tre co
 - **correzioni di falsi positivi** emerse dal traffico reale (AutoArmor, KnockbackHandler, prediction, teleport).
 
 Il progetto upstream resta la fonte di riferimento per documentazione e supporto. Questo fork non è affiliato
-al progetto GrimAnticheat e non viene pubblicato sui canali ufficiali (Modrinth, Hangar, SpigotMC).
+al progetto GrimAnticheat. Questa versione è distribuita solo su GitHub, tramite gli artifact del CI e le GitHub Release.
+Non è presente su Modrinth, Hangar o SpigotMC.
 
 ## Stato della build
 
@@ -30,9 +31,9 @@ Il badge in alto mostra lo stato dell'ultimo run del workflow
 | Release pubblicata su GitHub | `release.yml` | build di release, jar allegati alla GitHub Release dal job `attach-jars-to-release` |
 | Avvio manuale (`workflow_dispatch`) | `gradle-publish.yml` | build con opzioni: build scan, pubblicazione on/off, runner |
 
-Il workflow non pubblica su Modrinth né sull'API di aggiornamento a meno che i secret `MODRINTH_ID`,
-`MODRINTH_TOKEN`, `BUILD_UPDATE_TOKEN` e `BUILD_UPDATE_URL` non siano configurati nel repository. Senza questi
-secret i jar vengono comunque costruiti e caricati come artifact.
+Su questo fork il CI non pubblica su Modrinth né sull'API di aggiornamento, perché i secret `MODRINTH_ID`,
+`MODRINTH_TOKEN`, `BUILD_UPDATE_TOKEN` e `BUILD_UPDATE_URL` non sono configurati. I jar sono quindi disponibili
+solo come artifact del run e, per le release, come asset della GitHub Release.
 
 ### Scaricare un jar
 
