@@ -72,6 +72,7 @@ public class AutoArmor extends Check implements PacketReceiveListener, PacketSen
             PacketType.Play.Client.PLAYER_POSITION_AND_ROTATION,
             PacketType.Play.Client.PLAYER_FLYING,
             PacketType.Play.Client.PLAYER_POSITION,
+            PacketType.Play.Client.CLIENT_TICK_END,
             PacketType.Play.Client.ATTACK,
             PacketType.Play.Client.INTERACT_ENTITY,
             PacketType.Play.Client.PLAYER_DIGGING,
