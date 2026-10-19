@@ -1,7 +1,6 @@
 package ac.grim.grimac.predictionengine;
 
 import ac.grim.grimac.GrimAPI;
-import ac.grim.grimac.api.AbstractCheck;
 import ac.grim.grimac.api.config.ConfigManager;
 import ac.grim.grimac.api.plugin.BasicGrimPlugin;
 import ac.grim.grimac.api.plugin.GrimPlugin;
