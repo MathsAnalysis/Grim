@@ -312,6 +312,7 @@ public class AimAI extends Check implements RotationListener, PacketReceiveListe
 
         boolean activeVerticalMovement = (pitchFlips >= 2 && maxPitchDelta > 3.5f)
                 || (stdDeltaPitch > 2.0 && meanDeltaPitch > 1.5)
+                || (meanDeltaPitch > 2.0 && pitchFlips == 0 && maxPitchDelta > 3.5f)
                 || (maxPitchDelta > 8.0f);
 
         double sumAngle = 0.0;
@@ -634,6 +635,7 @@ public class AimAI extends Check implements RotationListener, PacketReceiveListe
 
         return (pitchFlips >= 2 && maxPitchDelta > 3.5f)
                 || (stdDeltaPitch > 2.0 && meanDeltaPitch > 1.5)
+                || (meanDeltaPitch > 2.0 && pitchFlips == 0 && maxPitchDelta > 3.5f)
                 || (maxPitchDelta > 8.0f);
     }
 

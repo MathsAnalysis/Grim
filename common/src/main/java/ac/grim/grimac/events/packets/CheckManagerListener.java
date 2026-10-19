@@ -644,11 +644,6 @@ public class CheckManagerListener extends PacketListenerAbstract {
         if (player.inVehicle()) return true;
 
         final Vector3d position = flying.getLocation().getPosition();
-        if (player.uncertaintyHandler.lastTeleportTicks.hasOccurredSince(0)) {
-            return flying.isOnGround() == player.packetStateData.packetPlayerOnGround
-                    && player.filterMojangStupidityOnMojangStupidity.equals(position);
-        }
-
         final double threshold = player.getMovementThreshold();
 
         // ground status will never change in duplicate packets

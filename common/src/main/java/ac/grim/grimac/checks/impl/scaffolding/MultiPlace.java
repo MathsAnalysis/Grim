@@ -33,7 +33,8 @@ public class MultiPlace extends BlockPlaceCheck implements PacketReceiveListener
             PacketType.Play.Client.PLAYER_FLYING,
             PacketType.Play.Client.PLAYER_POSITION,
             PacketType.Play.Client.PLAYER_POSITION_AND_ROTATION,
-            PacketType.Play.Client.PLAYER_ROTATION
+            PacketType.Play.Client.PLAYER_ROTATION,
+            PacketType.Play.Client.CLIENT_TICK_END
     };
 
     private final List<FlagData> flags = new ArrayList<>();

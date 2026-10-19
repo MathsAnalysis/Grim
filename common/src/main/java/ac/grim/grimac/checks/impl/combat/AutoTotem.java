@@ -56,6 +56,7 @@ public class AutoTotem extends Check implements PacketReceiveListener, PacketSen
             PacketType.Play.Client.PLAYER_POSITION,
             PacketType.Play.Client.PLAYER_POSITION_AND_ROTATION,
             PacketType.Play.Client.PLAYER_ROTATION,
+            PacketType.Play.Client.CLIENT_TICK_END,
             PacketType.Play.Client.CLOSE_WINDOW,
             PacketType.Play.Client.CLICK_WINDOW,
             PacketType.Play.Client.PLAYER_DIGGING

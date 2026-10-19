@@ -816,6 +816,10 @@ public class MovementCheckRunner extends GrimProcessor {
         float firstFriction = player.friction;
         double firstGravity = player.gravity;
         int firstMinAttackSlow = player.minAttackSlow;
+        double firstBreadKbOffset = player.firstBreadKB != null ? player.firstBreadKB.offset : 0;
+        double firstLikelyKbOffset = player.likelyKB != null ? player.likelyKB.offset : 0;
+        double firstBreadExpOffset = player.firstBreadExplosion != null ? player.firstBreadExplosion.offset : 0;
+        double firstLikelyExpOffset = player.likelyExplosions != null ? player.likelyExplosions.offset : 0;
 
         // Restore pre-step state and simulate with alternative ground state
         player.lastOnGround = altOnGround;
@@ -863,6 +867,10 @@ public class MovementCheckRunner extends GrimProcessor {
             player.friction = firstFriction;
             player.gravity = firstGravity;
             player.minAttackSlow = firstMinAttackSlow;
+            if (player.firstBreadKB != null) player.firstBreadKB.offset = firstBreadKbOffset;
+            if (player.likelyKB != null) player.likelyKB.offset = firstLikelyKbOffset;
+            if (player.firstBreadExplosion != null) player.firstBreadExplosion.offset = firstBreadExpOffset;
+            if (player.likelyExplosions != null) player.likelyExplosions.offset = firstLikelyExpOffset;
         }
     }
 

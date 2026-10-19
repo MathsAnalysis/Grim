@@ -28,7 +28,8 @@ public class MultiInteractA extends Check implements PacketReceiveListener, Post
             PacketType.Play.Client.PLAYER_FLYING,
             PacketType.Play.Client.PLAYER_POSITION,
             PacketType.Play.Client.PLAYER_POSITION_AND_ROTATION,
-            PacketType.Play.Client.PLAYER_ROTATION
+            PacketType.Play.Client.PLAYER_ROTATION,
+            PacketType.Play.Client.CLIENT_TICK_END
     };
 
     private final ArrayList<FlagData> flags = new ArrayList<>();

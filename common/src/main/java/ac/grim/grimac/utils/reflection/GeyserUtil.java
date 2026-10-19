@@ -13,7 +13,16 @@ public class GeyserUtil {
     private static final boolean geyser = ReflectionUtils.hasClass("org.geysermc.api.Geyser");
 
     public static boolean isBedrockPlayer(UUID uuid) {
-        return floodgate && FloodgateApi.getInstance().isFloodgatePlayer(uuid)
-                || geyser && Geyser.api().isBedrockPlayer(uuid);
+        FloodgateApi floodgateApi = floodgate ? FloodgateApi.getInstance() : null;
+        if (floodgateApi != null && floodgateApi.isFloodgatePlayer(uuid)) return true;
+        return geyser && isGeyserBedrockPlayer(uuid);
+    }
+
+    private static boolean isGeyserBedrockPlayer(UUID uuid) {
+        try {
+            return Geyser.api().isBedrockPlayer(uuid);
+        } catch (RuntimeException notRegistered) {
+            return false;
+        }
     }
 }

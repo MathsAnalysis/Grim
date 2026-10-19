@@ -27,28 +27,27 @@ import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientPl
 )
 public class AutoCrystalB extends Check implements PacketReceiveListener {
 
-    private static final Verbose V_STATS = Verbose.of("pattern={str}, mean={f64:%.2f}ms, stdDev={f64:%.2f}ms, skew={f64:%.2f}, kurt={f64:%.2f}");
+    private static final Verbose V_STATS = Verbose.of("pattern={str}, mean={f64:%.2f}ticks, stdDev={f64:%.2f}ticks, skew={f64:%.2f}, kurt={f64:%.2f}");
 
     private static final int WINDOW_SIZE = 16;
     private static final int MIN_SAMPLES_FOR_EVAL = 12;
 
-    private static final long MAX_CRYSTAL_ATTACK_DELTA_MS = 1200L;
-    private static final long MAX_UNRESOLVED_ATTACK_DELTA_MS = 400L;
+    private static final int MAX_CRYSTAL_ATTACK_DELTA_TICKS = 20;
 
-    private static final double LOW_VARIANCE_MAX_STDDEV = 7.5;
-    private static final double LOW_VARIANCE_MAX_MEAN = 300.0;
+    private static final double LOW_VARIANCE_MAX_STDDEV = 0.5;
+    private static final double LOW_VARIANCE_MAX_MEAN = 6.0;
     private static final double LOW_VARIANCE_BUFFER_INCREMENT = 2.0;
 
-    private static final double UNIFORM_JITTER_MAX_STDDEV = 35.0;
+    private static final double UNIFORM_JITTER_MAX_STDDEV = 1.5;
     private static final double UNIFORM_JITTER_MAX_ABS_SKEW = 0.22;
     private static final double UNIFORM_JITTER_MAX_KURTOSIS = -0.85;
     private static final double UNIFORM_JITTER_BUFFER_INCREMENT = 1.8;
 
-    private static final double INHUMAN_SPEED_MAX_MEAN = 25.0;
-    private static final double INHUMAN_SPEED_MAX_STDDEV = 15.0;
+    private static final double INHUMAN_SPEED_MAX_MEAN = 1.25;
+    private static final double INHUMAN_SPEED_MAX_STDDEV = 0.75;
     private static final double INHUMAN_SPEED_BUFFER_INCREMENT = 2.5;
 
-    private static final double LEGIT_MIN_STDDEV = 22.0;
+    private static final double LEGIT_MIN_STDDEV = 0.44;
     private static final double LEGIT_MIN_SKEWNESS = 0.45;
     private static final double LEGIT_MIN_KURTOSIS = -0.5;
     private static final double LEGIT_BUFFER_DECAY = 0.35;
@@ -57,6 +56,11 @@ public class AutoCrystalB extends Check implements PacketReceiveListener {
     private static final double BUFFER_MAX_CAP = 8.0;
 
     private static final PacketTypeCommon[] RECEIVE_PACKETS = new PacketTypeCommon[]{
+            PacketType.Play.Client.PLAYER_ROTATION,
+            PacketType.Play.Client.PLAYER_POSITION_AND_ROTATION,
+            PacketType.Play.Client.PLAYER_FLYING,
+            PacketType.Play.Client.PLAYER_POSITION,
+            PacketType.Play.Client.CLIENT_TICK_END,
             PacketType.Play.Client.PLAYER_BLOCK_PLACEMENT,
             PacketType.Play.Client.ATTACK,
             PacketType.Play.Client.INTERACT_ENTITY
@@ -67,7 +71,8 @@ public class AutoCrystalB extends Check implements PacketReceiveListener {
     private int sampleCount;
     private double buffer;
 
-    private long lastCrystalPlaceTime;
+    private int tick;
+    private int lastCrystalPlaceTick;
     private boolean pendingCrystalHit;
 
     public AutoCrystalB(GrimPlayer player) {
@@ -89,6 +94,11 @@ public class AutoCrystalB extends Check implements PacketReceiveListener {
         if (player.disableGrim) return;
 
         final PacketTypeCommon packetType = event.getPacketType();
+
+        if (isTickPacket(packetType)) {
+            tick++;
+            return;
+        }
 
         if (packetType == PacketType.Play.Client.PLAYER_BLOCK_PLACEMENT) {
             handleBlockPlacement(event);
@@ -117,7 +127,7 @@ public class AutoCrystalB extends Check implements PacketReceiveListener {
 
         StateType clickedBlock = player.compensatedWorld.getBlock(place.getBlockPosition()).getType();
         if (isCrystalBaseBlock(clickedBlock)) {
-            lastCrystalPlaceTime = System.currentTimeMillis();
+            lastCrystalPlaceTick = tick;
             pendingCrystalHit = true;
         }
     }
@@ -138,16 +148,14 @@ public class AutoCrystalB extends Check implements PacketReceiveListener {
             return;
         }
 
-        final long now = System.currentTimeMillis();
-        final long delta = now - lastCrystalPlaceTime;
+        final int delta = tick - lastCrystalPlaceTick;
         pendingCrystalHit = false;
 
         if (isConnectionUnstable()) {
             return;
         }
 
-        final boolean isKnownCrystal = isCrystalEntity(entityId);
-        if (isValidTimingSample(delta, isKnownCrystal)) {
+        if (isCrystalEntity(entityId) && isValidTimingSample(delta)) {
             addSample((double) delta);
             evaluateSamples();
         }
@@ -162,9 +170,8 @@ public class AutoCrystalB extends Check implements PacketReceiveListener {
         return entity != null && entity.getType() == EntityTypes.END_CRYSTAL;
     }
 
-    private boolean isValidTimingSample(long delta, boolean isKnownCrystal) {
-        return delta >= 0 && delta <= MAX_CRYSTAL_ATTACK_DELTA_MS
-                && (isKnownCrystal || delta <= MAX_UNRESOLVED_ATTACK_DELTA_MS);
+    private boolean isValidTimingSample(int delta) {
+        return delta >= 0 && delta <= MAX_CRYSTAL_ATTACK_DELTA_TICKS;
     }
 
     private void addSample(double delta) {
@@ -203,7 +210,7 @@ public class AutoCrystalB extends Check implements PacketReceiveListener {
     }
 
     private boolean isLowVariancePattern(SampleStatistics stats) {
-        return stats.stdDev() < LOW_VARIANCE_MAX_STDDEV && stats.mean() < LOW_VARIANCE_MAX_MEAN;
+        return stats.stdDev() < LOW_VARIANCE_MAX_STDDEV && stats.mean() <= LOW_VARIANCE_MAX_MEAN;
     }
 
     private boolean isUniformJitterPattern(SampleStatistics stats) {
@@ -213,7 +220,7 @@ public class AutoCrystalB extends Check implements PacketReceiveListener {
     }
 
     private boolean isInhumanSpeedPattern(SampleStatistics stats) {
-        return stats.mean() < INHUMAN_SPEED_MAX_MEAN && stats.stdDev() < INHUMAN_SPEED_MAX_STDDEV;
+        return stats.mean() <= INHUMAN_SPEED_MAX_MEAN && stats.stdDev() < INHUMAN_SPEED_MAX_STDDEV;
     }
 
     private boolean isHumanVariancePattern(SampleStatistics stats) {
