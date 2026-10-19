@@ -9,6 +9,7 @@ import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.inventory.EquipmentType;
 import ac.grim.grimac.utils.inventory.Inventory;
 import ac.grim.grimac.utils.lists.CorrectingPlayerInventoryStorage;
+import ac.grim.grimac.utils.math.Location;
 import com.github.retrooper.packetevents.event.PacketReceiveEvent;
 import com.github.retrooper.packetevents.event.PacketSendEvent;
 import com.github.retrooper.packetevents.protocol.item.ItemStack;
@@ -71,6 +72,7 @@ public class AutoArmor extends Check implements PacketReceiveListener, PacketSen
             PacketType.Play.Client.PLAYER_POSITION_AND_ROTATION,
             PacketType.Play.Client.PLAYER_FLYING,
             PacketType.Play.Client.PLAYER_POSITION,
+            PacketType.Play.Client.CLIENT_TICK_END,
             PacketType.Play.Client.ATTACK,
             PacketType.Play.Client.INTERACT_ENTITY,
             PacketType.Play.Client.PLAYER_DIGGING,
@@ -146,7 +148,6 @@ public class AutoArmor extends Check implements PacketReceiveListener, PacketSen
         if (packetType == PacketType.Play.Client.PLAYER_ROTATION
                 || packetType == PacketType.Play.Client.PLAYER_POSITION_AND_ROTATION) {
             handlePlayerRotation(event, now);
-            return;
         }
 
         if (isTickPacket(packetType)) {
@@ -188,7 +189,7 @@ public class AutoArmor extends Check implements PacketReceiveListener, PacketSen
         float pitch = flying.getLocation().getPitch();
 
         if (initializedLook && canTrackRotation()) {
-            float deltaYaw = Math.abs(yaw - lastYaw);
+            float deltaYaw = Math.abs(Location.normalizeYaw(yaw - lastYaw));
             float deltaPitch = Math.abs(pitch - lastPitch);
             if (deltaYaw > MIN_SIGNIFICANT_ROTATION_DEGREES || deltaPitch > MIN_SIGNIFICANT_ROTATION_DEGREES) {
                 lastSignificantRotationTime = now;

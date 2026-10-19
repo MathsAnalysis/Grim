@@ -20,6 +20,7 @@ import ac.grim.grimac.checks.impl.elytra.*;
 import ac.grim.grimac.checks.impl.exploit.ExploitA;
 import ac.grim.grimac.checks.impl.exploit.ExploitB;
 import ac.grim.grimac.checks.impl.groundspoof.NoFall;
+import ac.grim.grimac.checks.impl.misc.AutoTool;
 import ac.grim.grimac.checks.impl.misc.ClientBrand;
 import ac.grim.grimac.checks.impl.misc.GhostBlockMitigation;
 import ac.grim.grimac.checks.impl.misc.Post;
@@ -151,6 +152,7 @@ public class CheckManager implements BasicReloadable {
                 .put(KillAura.class, new KillAura(player))
                 .put(AutoTotem.class, new AutoTotem(player))
                 .put(AutoArmor.class, new AutoArmor(player))
+                .put(AutoTool.class, new AutoTool(player))
                 .put(AutoCrystalA.class, new AutoCrystalA(player))
                 .put(AutoCrystalB.class, new AutoCrystalB(player))
                 .put(AimAI.class, new AimAI(player))
