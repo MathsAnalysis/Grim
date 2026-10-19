@@ -2,6 +2,7 @@ package ac.grim.grimac.predictionengine;
 
 import ac.grim.grimac.api.config.ConfigManager;
 import ac.grim.grimac.checks.GrimProcessor;
+import ac.grim.grimac.checks.impl.prediction.OffsetHandler;
 import ac.grim.grimac.checks.impl.prediction.Phase;
 import ac.grim.grimac.checks.impl.vehicle.VehicleC;
 import ac.grim.grimac.manager.SetbackTeleportUtil;
@@ -20,6 +21,7 @@ import ac.grim.grimac.utils.anticheat.update.PositionUpdate;
 import ac.grim.grimac.utils.anticheat.update.PredictionComplete;
 import ac.grim.grimac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.grim.grimac.utils.data.IndexedVector3d;
+import ac.grim.grimac.utils.data.MainSupportingBlockData;
 import ac.grim.grimac.utils.data.SetBackData;
 import ac.grim.grimac.utils.data.VectorData;
 import ac.grim.grimac.utils.data.packetentity.PacketEntity;
@@ -37,6 +39,7 @@ import ac.grim.grimac.utils.nmsutil.BlockProperties;
 import ac.grim.grimac.utils.nmsutil.BoundingBoxSize;
 import ac.grim.grimac.utils.nmsutil.Collisions;
 import ac.grim.grimac.utils.nmsutil.GetBoundingBox;
+import ac.grim.grimac.utils.nmsutil.MainSupportingBlockPosFinder;
 import ac.grim.grimac.utils.nmsutil.Riptide;
 import ac.grim.grimac.utils.nmsutil.StuckSpeed;
 import com.github.retrooper.packetevents.PacketEvents;
@@ -58,6 +61,8 @@ public class MovementCheckRunner extends GrimProcessor {
     // Averaged over 20000 predictions
     public static double longPredictionNanos = 0.3 * 1e6;
     private boolean allowSprintJumpingWithElytra = true;
+    private boolean canUseGroundAfterTeleport = false;
+    private MainSupportingBlockData teleportGroundSupportingBlock = MainSupportingBlockData.AIR_OFF_GROUND;
 
     public MovementCheckRunner(GrimPlayer player) {
         super(player);
@@ -125,21 +130,68 @@ public class MovementCheckRunner extends GrimProcessor {
             }
         }
 
+        player.fallDistance = 0;
         player.uncertaintyHandler.lastTeleportTicks.reset();
+        if (player.uncertaintyHandler.lastEnderPearlThrow.hasOccurredSince(120)) {
+            player.uncertaintyHandler.lastEnderPearlTeleport.reset();
+        }
 
-        // Teleports OVERRIDE explosions and knockback
-        player.checkManager.getExplosionHandler().forceExempt();
-        player.checkManager.getKnockbackHandler().forceExempt();
+        int tpTrans = update.getTeleportData() != null ? update.getTeleportData().getTransaction() : player.lastTransactionReceived.get();
+        boolean relativeVel = update.getTeleportData() != null && update.getTeleportData().isRelativeVelocity();
+        player.checkManager.getExplosionHandler().onTeleport(tpTrans, relativeVel);
+        player.checkManager.getKnockbackHandler().onTeleport(tpTrans, relativeVel);
+        player.likelyKB = null;
+        player.firstBreadKB = null;
+        player.likelyExplosions = null;
+        player.firstBreadExplosion = null;
 
         player.boundingBox = GetBoundingBox.getCollisionBoxForPlayer(player, player.x, player.y, player.z);
 
-        // Manually call prediction complete to handle teleport
+        boolean wasOnGround = player.onGround;
+        boolean groundAtTeleport = update.isOnGround() || Collisions.slowCouldPointThreeHitGround(player, player.x, player.y, player.z);
+        this.canUseGroundAfterTeleport = wasOnGround || groundAtTeleport;
+
+        boolean onGround = update.isOnGround() || wasOnGround;
+        player.onGround = onGround;
+        player.lastOnGround = onGround;
+        player.clientClaimsLastOnGround = update.isOnGround();
+
+        if (!player.inVehicle()) {
+            this.teleportGroundSupportingBlock = this.canUseGroundAfterTeleport
+                    ? MainSupportingBlockPosFinder.findMainSupportingBlockPos(player, MainSupportingBlockData.AIR_OFF_GROUND, null, player.boundingBox, true)
+                    : MainSupportingBlockData.AIR_OFF_GROUND;
+            player.mainSupportingBlockData = player.lastOnGround ? this.teleportGroundSupportingBlock : MainSupportingBlockData.AIR_OFF_GROUND;
+            player.isClimbing = Collisions.onClimbable(player, player.x, player.y, player.z);
+        }
+
+        if (player.isSprinting != player.lastSprinting) {
+            player.compensatedEntities.hasSprintingAttributeEnabled = player.isSprinting;
+        }
+        player.lastSprinting = player.isSprinting;
+        player.lastSprintingForSpeed = player.isSprinting;
+
+        player.couldSkipTick = false;
+        player.skippedTickInActualMovement = false;
+        player.uncertaintyHandler.lastMovementWasZeroPointZeroThree = false;
+        player.uncertaintyHandler.lastMovementWasUnknown003VectorReset = false;
+        player.uncertaintyHandler.wasZeroPointThreeVertically = false;
+        player.uncertaintyHandler.onGroundUncertain = false;
+        player.uncertaintyHandler.lastPacketWasGroundPacket = false;
+        player.uncertaintyHandler.thisTickSlimeBlockUncertainty = 0;
+        player.uncertaintyHandler.nextTickSlimeBlockUncertainty = 0;
+        player.minAttackSlow = 0;
+        player.maxAttackSlow = 0;
+        player.startTickClientVel = player.clientVelocity.clone();
+        player.actualMovement = new Vector3dm();
+        player.checkManager.get(SneakingEstimator.class).reset();
+
         PredictionComplete predictionComplete = new PredictionComplete(0, update, true);
         player.getSetbackTeleportUtil().onPredictionComplete(predictionComplete);
         player.checkManager.get(Phase.class).onPredictionComplete(predictionComplete);
 
         player.uncertaintyHandler.lastHorizontalOffset = 0;
         player.uncertaintyHandler.lastVerticalOffset = 0;
+        player.pointThreeEstimator.endOfTickTick();
     }
 
     private void check(PositionUpdate update) {
@@ -534,7 +586,11 @@ public class MovementCheckRunner extends GrimProcessor {
             }
 
             PlayerBaseTick.doBaseTick(player);
-            new MovementTickerPlayer(player).livingEntityAIStep();
+            if (player.uncertaintyHandler.lastTeleportTicks.hasOccurredSince(0)) {
+                runPostTeleportPlayerAIStep();
+            } else {
+                new MovementTickerPlayer(player).livingEntityAIStep();
+            }
             PlayerBaseTick.updatePowderSnow(player);
             PlayerBaseTick.updatePlayerPose(player);
         } else if (PacketEvents.getAPI().getServerManager().getVersion().isNewerThanOrEquals(ServerVersion.V_1_9) && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_9)) {
@@ -595,13 +651,7 @@ public class MovementCheckRunner extends GrimProcessor {
                     && ((setbackVel != null && setbackVel.getY() >= 0) || !Collisions.slowCouldPointThreeHitGround(player, player.lastX, player.lastY, player.lastZ))) {
                 player.getSetbackTeleportUtil().executeForceResync();
             }
-            boolean lavaBugFix = player.wasTouchingLava && player.predictedVelocity.isJump() &&
-                    player.predictedVelocity.vector.getY() < 0.06 && player.predictedVelocity.vector.getY() > -0.02;
-            // Player ignored the knockback or is delaying it a tick... bad!
-            if (!player.predictedVelocity.isKnockback() && !lavaBugFix && player.getSetbackTeleportUtil().getRequiredSetBack().getVelocity() != null) {
-                // And then send it again!
-                player.getSetbackTeleportUtil().executeForceResync();
-            }
+
         }
 
         // Let's hope this doesn't desync :)
@@ -709,6 +759,111 @@ public class MovementCheckRunner extends GrimProcessor {
         // If the player was very likely to have used riptide on the ground
         // (Patches issues with slime and other desync's)
         return riptideDiffToGround < riptideDiffToBase;
+    }
+
+    private void runPostTeleportPlayerAIStep() {
+        boolean initialLastOnGround = player.lastOnGround;
+        MainSupportingBlockData initialSupportingBlock = player.mainSupportingBlockData;
+        Vector3dm savedClientVel = player.clientVelocity.clone();
+        SimpleCollisionBox savedBB = player.boundingBox.copy();
+        boolean savedCouldSkipTick = player.couldSkipTick;
+        boolean savedSkippedTick = player.skippedTickInActualMovement;
+        boolean savedIsStepMovement = player.uncertaintyHandler.isStepMovement;
+        double savedNextTickSlime = player.uncertaintyHandler.nextTickSlimeBlockUncertainty;
+        double savedFallDistance = player.fallDistance;
+        double savedLastWasClimbing = player.lastWasClimbing;
+        boolean savedCanSwimHop = player.canSwimHop;
+        boolean savedIsClimbing = player.isClimbing;
+        IndexedVector3d savedStuckSpeed = player.stuckSpeedMultiplier;
+        IndexedVector3d savedLastStuckSpeed = player.lastStuckSpeedMultiplier;
+        boolean savedVerticalCollision = player.verticalCollision;
+        float savedFriction = player.friction;
+        double savedGravity = player.gravity;
+        int savedMinAttackSlow = player.minAttackSlow;
+        double savedFirstBreadKbOffset = player.firstBreadKB != null ? player.firstBreadKB.offset : 0;
+        double savedLikelyKbOffset = player.likelyKB != null ? player.likelyKB.offset : 0;
+        double savedFirstBreadExpOffset = player.firstBreadExplosion != null ? player.firstBreadExplosion.offset : 0;
+        double savedLikelyExpOffset = player.likelyExplosions != null ? player.likelyExplosions.offset : 0;
+
+        new MovementTickerPlayer(player).livingEntityAIStep();
+        double firstOffset = player.uncertaintyHandler.reduceOffset(player.predictedVelocity.vector.distance(player.actualMovement));
+        if (!player.checkManager.get(OffsetHandler.class).doesOffsetFlag(firstOffset)) {
+            return;
+        }
+
+        boolean altOnGround = !initialLastOnGround;
+        boolean altValid = !altOnGround || canUseGroundAfterTeleport || Collisions.slowCouldPointThreeHitGround(player, player.lastX, player.lastY, player.lastZ);
+        if (!altValid) {
+            return;
+        }
+
+        // Save first run results in case the alternative ground state is not more accurate
+        Vector3dm firstClientVel = player.clientVelocity.clone();
+        VectorData firstPredictedVel = player.predictedVelocity;
+        SimpleCollisionBox firstBB = player.boundingBox.copy();
+        MainSupportingBlockData firstSupportingBlock = player.mainSupportingBlockData;
+        boolean firstCouldSkipTick = player.couldSkipTick;
+        boolean firstSkippedTick = player.skippedTickInActualMovement;
+        boolean firstIsStepMovement = player.uncertaintyHandler.isStepMovement;
+        double firstNextTickSlime = player.uncertaintyHandler.nextTickSlimeBlockUncertainty;
+        double firstFallDistance = player.fallDistance;
+        double firstLastWasClimbing = player.lastWasClimbing;
+        boolean firstCanSwimHop = player.canSwimHop;
+        boolean firstIsClimbing = player.isClimbing;
+        IndexedVector3d firstStuckSpeed = player.stuckSpeedMultiplier;
+        IndexedVector3d firstLastStuckSpeed = player.lastStuckSpeedMultiplier;
+        boolean firstVerticalCollision = player.verticalCollision;
+        float firstFriction = player.friction;
+        double firstGravity = player.gravity;
+        int firstMinAttackSlow = player.minAttackSlow;
+
+        // Restore pre-step state and simulate with alternative ground state
+        player.lastOnGround = altOnGround;
+        player.mainSupportingBlockData = altOnGround ? teleportGroundSupportingBlock : MainSupportingBlockData.AIR_OFF_GROUND;
+        player.clientVelocity = savedClientVel;
+        player.boundingBox = savedBB;
+        player.couldSkipTick = savedCouldSkipTick;
+        player.skippedTickInActualMovement = savedSkippedTick;
+        player.uncertaintyHandler.isStepMovement = savedIsStepMovement;
+        player.uncertaintyHandler.nextTickSlimeBlockUncertainty = savedNextTickSlime;
+        player.fallDistance = savedFallDistance;
+        player.lastWasClimbing = savedLastWasClimbing;
+        player.canSwimHop = savedCanSwimHop;
+        player.isClimbing = savedIsClimbing;
+        player.stuckSpeedMultiplier = savedStuckSpeed;
+        player.lastStuckSpeedMultiplier = savedLastStuckSpeed;
+        player.verticalCollision = savedVerticalCollision;
+        player.friction = savedFriction;
+        player.gravity = savedGravity;
+        player.minAttackSlow = savedMinAttackSlow;
+        if (player.firstBreadKB != null) player.firstBreadKB.offset = savedFirstBreadKbOffset;
+        if (player.likelyKB != null) player.likelyKB.offset = savedLikelyKbOffset;
+        if (player.firstBreadExplosion != null) player.firstBreadExplosion.offset = savedFirstBreadExpOffset;
+        if (player.likelyExplosions != null) player.likelyExplosions.offset = savedLikelyExpOffset;
+
+        new MovementTickerPlayer(player).livingEntityAIStep();
+        double secondOffset = player.uncertaintyHandler.reduceOffset(player.predictedVelocity.vector.distance(player.actualMovement));
+        if (secondOffset >= firstOffset) {
+            player.lastOnGround = initialLastOnGround;
+            player.mainSupportingBlockData = firstSupportingBlock != null ? firstSupportingBlock : initialSupportingBlock;
+            player.clientVelocity = firstClientVel;
+            player.predictedVelocity = firstPredictedVel;
+            player.boundingBox = firstBB;
+            player.couldSkipTick = firstCouldSkipTick;
+            player.skippedTickInActualMovement = firstSkippedTick;
+            player.uncertaintyHandler.isStepMovement = firstIsStepMovement;
+            player.uncertaintyHandler.nextTickSlimeBlockUncertainty = firstNextTickSlime;
+            player.fallDistance = firstFallDistance;
+            player.lastWasClimbing = firstLastWasClimbing;
+            player.canSwimHop = firstCanSwimHop;
+            player.isClimbing = firstIsClimbing;
+            player.stuckSpeedMultiplier = firstStuckSpeed;
+            player.lastStuckSpeedMultiplier = firstLastStuckSpeed;
+            player.verticalCollision = firstVerticalCollision;
+            player.friction = firstFriction;
+            player.gravity = firstGravity;
+            player.minAttackSlow = firstMinAttackSlow;
+        }
     }
 
     @Override

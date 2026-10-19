@@ -409,6 +409,9 @@ public class CheckManagerListener extends PacketListenerAbstract {
             Vector3d position = VectorUtils.clampVector(new Vector3d(teleportConfirm.getX(), teleportConfirm.getY(), teleportConfirm.getZ()));
             teleportData = player.getSetbackTeleportUtil().checkTeleportQueue(position.getX(), position.getY(), position.getZ(), teleportConfirm.getYaw(), teleportConfirm.getPitch(), teleportConfirm.getTeleportId());
             player.packetStateData.lastPacketWasTeleport = teleportData.isTeleport();
+        } else if (!TELEPORT_CONTAINS_POSITION && event.getPacketType() == PacketType.Play.Client.TELEPORT_CONFIRM) {
+            WrapperPlayClientTeleportConfirm confirm = new WrapperPlayClientTeleportConfirm(event);
+            player.getSetbackTeleportUtil().onTeleportConfirm(confirm.getTeleportId());
         }
 
         WrapperPlayClientPlayerFlying flying = null;
@@ -419,8 +422,9 @@ public class CheckManagerListener extends PacketListenerAbstract {
 
             Location location = flying.getLocation();
             Vector3d position = VectorUtils.clampVector(location.getPosition());
-            // Teleports must be POS LOOK
-            teleportData = !TELEPORT_CONTAINS_POSITION && flying.hasPositionChanged() && flying.hasRotationChanged() ? player.getSetbackTeleportUtil().checkTeleportQueue(position.getX(), position.getY(), position.getZ(), location.getYaw(), location.getPitch()) : TeleportAcceptData.EMPTY;
+            float checkYaw = flying.hasRotationChanged() ? location.getYaw() : player.yaw;
+            float checkPitch = flying.hasRotationChanged() ? location.getPitch() : player.pitch;
+            teleportData = !TELEPORT_CONTAINS_POSITION && flying.hasPositionChanged() ? player.getSetbackTeleportUtil().checkTeleportQueue(position.getX(), position.getY(), position.getZ(), checkYaw, checkPitch) : TeleportAcceptData.EMPTY;
             player.packetStateData.lastPacketWasTeleport = teleportData.isTeleport();
 
             if (flying.hasRotationChanged() && !flying.hasPositionChanged() && !flying.isOnGround() && !flying.isHorizontalCollision()) {
@@ -442,10 +446,14 @@ public class CheckManagerListener extends PacketListenerAbstract {
             }
         }
 
-        if ((teleportConfirm != null && teleportData.isTeleport()) || (player.inVehicle() ? event.getPacketType() == PacketType.Play.Client.VEHICLE_MOVE : flying != null && !player.packetStateData.lastPacketWasOnePointSeventeenDuplicate)) {
+        if (!player.packetStateData.lastPacketWasTeleport && (player.inVehicle() ? event.getPacketType() == PacketType.Play.Client.VEHICLE_MOVE : flying != null && !player.packetStateData.lastPacketWasOnePointSeventeenDuplicate)) {
             // Update knockback and explosions immediately, before anything can setback
             int kbEntityId = player.inVehicle() ? player.getRidingVehicleId() : player.entityID;
             int lastTrans = player.lastTransactionReceived.get();
+            TeleportData pendingTeleport = !player.inVehicle() ? player.getSetbackTeleportUtil().pendingTeleports.peek() : null;
+            if (pendingTeleport != null) {
+                lastTrans = Math.min(lastTrans, pendingTeleport.getTransaction());
+            }
 
             VelocityData calculatedFirstBreadKb = player.checkManager.getKnockbackHandler().calculateFirstBreadKnockback(kbEntityId, lastTrans);
             VelocityData calculatedRequireKb = player.checkManager.getKnockbackHandler().calculateRequiredKB(kbEntityId, lastTrans, false);
@@ -513,6 +521,10 @@ public class CheckManagerListener extends PacketListenerAbstract {
                 placedWith = player.inventory.getOffHand();
             }
 
+            if (placedWith != null && placedWith.getType() == ItemTypes.ENDER_PEARL) {
+                player.uncertaintyHandler.lastEnderPearlThrow.reset();
+            }
+
             // This is the use item packet
             if (packet.getFace() == BlockFace.OTHER && PacketEvents.getAPI().getServerManager().getVersion().isOlderThan(ServerVersion.V_1_9)) {
                 player.placeUseItemPackets.add(new BlockPlaceSnapshot(packet, player.isSneaking));
@@ -545,13 +557,8 @@ public class CheckManagerListener extends PacketListenerAbstract {
 
                     Vector3i facePos = new Vector3i(packet.getBlockPosition().getX() + packet.getFace().getModX(), packet.getBlockPosition().getY() + packet.getFace().getModY(), packet.getBlockPosition().getZ() + packet.getFace().getModZ());
 
-                    // Ends the client prediction introduced in 1.19+
-                    if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_19) && PacketEvents.getAPI().getServerManager().getVersion().isNewerThanOrEquals(ServerVersion.V_1_19)) {
-                        player.user.sendPacket(new WrapperPlayServerAcknowledgeBlockChanges(packet.getSequence()));
-                    } else { // The client isn't smart enough to revert changes
-                        player.resyncPosition(packet.getBlockPosition());
-                        player.resyncPosition(facePos);
-                    }
+                    player.resyncPosition(packet.getBlockPosition(), packet.getSequence());
+                    player.resyncPosition(facePos, packet.getSequence());
 
                     // Stop inventory desync from cancelling place
                     if (player.platformPlayer != null) {
@@ -574,6 +581,12 @@ public class CheckManagerListener extends PacketListenerAbstract {
             WrapperPlayClientUseItem packet = new WrapperPlayClientUseItem(event);
             player.placeUseItemPackets.add(new BlockPlaceSnapshot(packet, player.isSneaking));
             player.lastBlockPlaceUseItem = System.currentTimeMillis();
+
+            ItemStack mainHand = player.inventory.getHeldItem();
+            ItemStack offHand = player.inventory.getOffHand();
+            if ((mainHand != null && mainHand.getType() == ItemTypes.ENDER_PEARL) || (offHand != null && offHand.getType() == ItemTypes.ENDER_PEARL)) {
+                player.uncertaintyHandler.lastEnderPearlThrow.reset();
+            }
         }
 
         // Call the packet checks last as they can modify the contents of the packet
@@ -631,6 +644,11 @@ public class CheckManagerListener extends PacketListenerAbstract {
         if (player.inVehicle()) return true;
 
         final Vector3d position = flying.getLocation().getPosition();
+        if (player.uncertaintyHandler.lastTeleportTicks.hasOccurredSince(0)) {
+            return flying.isOnGround() == player.packetStateData.packetPlayerOnGround
+                    && player.filterMojangStupidityOnMojangStupidity.equals(position);
+        }
+
         final double threshold = player.getMovementThreshold();
 
         // ground status will never change in duplicate packets

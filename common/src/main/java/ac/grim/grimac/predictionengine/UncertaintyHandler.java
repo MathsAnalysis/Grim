@@ -84,6 +84,8 @@ public class UncertaintyHandler {
     public final LastInstance lastHardCollidingLerpingEntity;
     public final LastInstance lastThirtyMillionHardBorder;
     public final LastInstance lastTeleportTicks;
+    public final LastInstance lastEnderPearlThrow;
+    public final LastInstance lastEnderPearlTeleport;
     public final LastInstance lastPointThree;
     public final LastInstance stuckOnEdge;
     public final LastInstance lastStuckNorth;
@@ -103,6 +105,8 @@ public class UncertaintyHandler {
         this.lastHardCollidingLerpingEntity = new LastInstance(player);
         this.lastThirtyMillionHardBorder = new LastInstance(player);
         this.lastTeleportTicks = new LastInstance(player);
+        this.lastEnderPearlThrow = new LastInstance(player);
+        this.lastEnderPearlTeleport = new LastInstance(player);
         this.lastPointThree = new LastInstance(player);
         this.stuckOnEdge = new LastInstance(player);
         this.lastStuckNorth = new LastInstance(player);

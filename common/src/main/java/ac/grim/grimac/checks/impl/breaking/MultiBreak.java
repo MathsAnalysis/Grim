@@ -11,6 +11,8 @@ import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.anticheat.update.BlockBreak;
 import ac.grim.grimac.utils.anticheat.update.PredictionComplete;
 import com.github.retrooper.packetevents.event.PacketReceiveEvent;
+import com.github.retrooper.packetevents.protocol.packettype.PacketType;
+import com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon;
 import com.github.retrooper.packetevents.protocol.player.DiggingAction;
 import com.github.retrooper.packetevents.protocol.world.BlockFace;
 import com.github.retrooper.packetevents.util.Vector3i;
@@ -20,8 +22,16 @@ import java.util.List;
 
 @CheckData(name = "MultiBreak", stableKey = "grim.breaking.multi_break", description = "Tried to break multiple different blocks in the same movement tick", experimental = true)
 public class MultiBreak extends Check implements BlockBreakListener, PreViaPacketReceiveListener, PostPredictionListener {
+
     private static final Verbose V =
             Verbose.of("face={face}, lastFace={face}, pos={mcpos}, lastPos={mcpos}");
+
+    private static final PacketTypeCommon[] HANDLED_PACKETS = new PacketTypeCommon[]{
+            PacketType.Play.Client.PLAYER_FLYING,
+            PacketType.Play.Client.PLAYER_POSITION,
+            PacketType.Play.Client.PLAYER_POSITION_AND_ROTATION,
+            PacketType.Play.Client.PLAYER_ROTATION
+    };
 
     private final List<FlagData> flags = new ArrayList<>();
     private boolean hasBroken;
@@ -30,6 +40,11 @@ public class MultiBreak extends Check implements BlockBreakListener, PreViaPacke
 
     public MultiBreak(GrimPlayer player) {
         super(player);
+    }
+
+    @Override
+    public PacketTypeCommon[] getHandledPacketTypes() {
+        return HANDLED_PACKETS;
     }
 
     @Override
@@ -67,9 +82,9 @@ public class MultiBreak extends Check implements BlockBreakListener, PreViaPacke
 
     @Override
     public void onPredictionComplete(PredictionComplete predictionComplete) {
-        if (!player.canSkipTicks()) return;
+        if (flags.isEmpty()) return;
 
-        if (player.isTickingReliablyFor(3)) {
+        if (player.canSkipTicks() && player.isTickingReliablyFor(3)) {
             for (FlagData data : flags) {
                 flag(V.write(verbose()).uint(data.face()).uint(data.previousFace())
                         .mcPos(data.pos().x, data.pos().y, data.pos().z)

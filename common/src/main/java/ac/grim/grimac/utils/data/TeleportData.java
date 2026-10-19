@@ -25,44 +25,47 @@ public class TeleportData {
     private int teleportId;
 
     public void modifyVector(@NotNull GrimPlayer player, Vector3dm vector) {
+        Vector3d vel = velocity != null ? velocity : Vector3d.zero();
         final boolean isStupidTeleportSystem = player.supportsEndTick();
         if (!isStupidTeleportSystem) {
             if (!isRelativeX()) {
-                vector.setX(0);
+                vector.setX(vel.getX());
+            } else if (vel.getX() != 0) {
+                vector.setX(vector.getX() + vel.getX());
             }
 
             if (!isRelativeY()) {
-                vector.setY(0);
-                player.lastWasClimbing = 0; // Vertical movement reset
-                player.canSwimHop = false; // Vertical movement reset
+                vector.setY(vel.getY());
+                player.lastWasClimbing = 0;
+                player.canSwimHop = false;
+            } else if (vel.getY() != 0) {
+                vector.setY(vector.getY() + vel.getY());
             }
 
             if (!isRelativeZ()) {
-                vector.setZ(0);
+                vector.setZ(vel.getZ());
+            } else if (vel.getZ() != 0) {
+                vector.setZ(vector.getZ() + vel.getZ());
             }
-        }
-
-        if (velocity != null && isStupidTeleportSystem) {
-            // WHAT WAS MOJANG THINKING MAKING TELEPORTS A REPLACEMENT PACKET FOR EXPLOSION VELOCITY /s
+        } else {
             if (isRelativeDeltaX()) {
-                vector.setX(vector.getX() + velocity.getX());
+                vector.setX(vector.getX() + vel.getX());
             } else {
-                vector.setX(velocity.getX());
+                vector.setX(vel.getX());
             }
 
             if (isRelativeDeltaY()) {
-                vector.setY(vector.getY() + velocity.getY());
+                vector.setY(vector.getY() + vel.getY());
             } else {
-                vector.setY(velocity.getY());
-                // Is this correct? Don't know don't care.
-                player.lastWasClimbing = 0; // Vertical movement reset
-                player.canSwimHop = false; // Vertical movement reset
+                vector.setY(vel.getY());
+                player.lastWasClimbing = 0;
+                player.canSwimHop = false;
             }
 
             if (isRelativeDeltaZ()) {
-                vector.setZ(vector.getZ() + velocity.getZ());
+                vector.setZ(vector.getZ() + vel.getZ());
             } else {
-                vector.setZ(velocity.getZ());
+                vector.setZ(vel.getZ());
             }
         }
     }

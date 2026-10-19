@@ -62,9 +62,8 @@ public class OffsetHandler extends Check implements PostPredictionListener {
             advantageGained = Math.min(advantageGained, maxCeiling);
         } else {
             advantageGained *= setbackDecayMultiplier;
+            removeOffsetLenience();
         }
-
-        removeOffsetLenience();
     }
 
     public static String humanFormattedOffset(double offset) {

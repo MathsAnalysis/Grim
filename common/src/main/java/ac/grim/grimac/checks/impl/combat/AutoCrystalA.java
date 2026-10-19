@@ -27,18 +27,32 @@ import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.ints.IntSet;
 
-@CheckData(name = "AutoCrystalA", stableKey = "grim.combat.autocrystal.a", description = "Attacked an End Crystal before server spawn confirmation or predicted entity ID", experimental = true)
+@CheckData(
+        name = "AutoCrystalA",
+        stableKey = "grim.combat.autocrystal.a",
+        description = "Attacked an End Crystal before server spawn confirmation or predicted entity ID",
+        experimental = true
+)
 public class AutoCrystalA extends Check implements PacketReceiveListener, PacketSendListener {
 
     private static final Verbose V_PREDICT = Verbose.of("type={str}, target={sint}, diff={sint}, trans={sint}/{sint}");
 
-    private static final com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon[] RECEIVE_PACKETS = new com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon[]{
+    private static final int NO_TRANSACTION = -1;
+    private static final int NO_ENTITY_ID = -1;
+    private static final int MAX_TRACKED_CRYSTALS = 64;
+    private static final long RECENT_PLACEMENT_WINDOW_MS = 1500L;
+    private static final double BUFFER_INCREMENT_UNSPAWNED = 1.5;
+    private static final double BUFFER_INCREMENT_UNCONFIRMED = 1.0;
+    private static final double BUFFER_VIOLATION_THRESHOLD = 1.0;
+    private static final double BUFFER_DECAY = 0.1;
+
+    private static final PacketTypeCommon[] RECEIVE_PACKETS = new PacketTypeCommon[]{
             PacketType.Play.Client.PLAYER_BLOCK_PLACEMENT,
             PacketType.Play.Client.ATTACK,
             PacketType.Play.Client.INTERACT_ENTITY
     };
 
-    private static final com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon[] SEND_PACKETS = new com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon[]{
+    private static final PacketTypeCommon[] SEND_PACKETS = new PacketTypeCommon[]{
             PacketType.Play.Server.SPAWN_ENTITY,
             PacketType.Play.Server.DESTROY_ENTITIES,
             PacketType.Play.Server.RESPAWN,
@@ -47,14 +61,14 @@ public class AutoCrystalA extends Check implements PacketReceiveListener, Packet
 
     private final Int2IntMap crystalSpawnTransactions = new Int2IntOpenHashMap();
     private final IntSet knownCrystalIds = new IntOpenHashSet();
-    private int highestSpawnedCrystalId = -1;
 
+    private int highestSpawnedCrystalId = NO_ENTITY_ID;
     private long lastCrystalPlaceTime;
     private double buffer;
 
     public AutoCrystalA(GrimPlayer player) {
         super(player);
-        crystalSpawnTransactions.defaultReturnValue(-1);
+        crystalSpawnTransactions.defaultReturnValue(NO_TRANSACTION);
     }
 
     @Override
@@ -68,42 +82,28 @@ public class AutoCrystalA extends Check implements PacketReceiveListener, Packet
     }
 
     @Override
+    public PacketTypeCommon[] getHandledSendPacketTypes() {
+        return SEND_PACKETS;
+    }
+
+    @Override
     public void onPacketSend(PacketSendEvent event) {
         if (player.disableGrim) return;
 
         final PacketTypeCommon packetType = event.getPacketType();
 
         if (packetType == PacketType.Play.Server.SPAWN_ENTITY) {
-            WrapperPlayServerSpawnEntity spawn = new WrapperPlayServerSpawnEntity(event);
-            if (spawn.getEntityType() == EntityTypes.END_CRYSTAL) {
-                final int entityId = spawn.getEntityId();
-                knownCrystalIds.add(entityId);
-                highestSpawnedCrystalId = Math.max(highestSpawnedCrystalId, entityId);
-
-                event.getTasksAfterSend().add(() -> {
-                    player.sendTransaction();
-                    final int transaction = player.lastTransactionSent.get();
-                    crystalSpawnTransactions.put(entityId, transaction);
-                });
-            }
+            handleEntitySpawn(event);
             return;
         }
 
         if (packetType == PacketType.Play.Server.DESTROY_ENTITIES) {
-            WrapperPlayServerDestroyEntities destroy = new WrapperPlayServerDestroyEntities(event);
-            for (int id : destroy.getEntityIds()) {
-                crystalSpawnTransactions.remove(id);
-                knownCrystalIds.remove(id);
-            }
+            handleEntityDestroy(event);
             return;
         }
 
         if (packetType == PacketType.Play.Server.RESPAWN || packetType == PacketType.Play.Server.JOIN_GAME) {
-            crystalSpawnTransactions.clear();
-            knownCrystalIds.clear();
-            highestSpawnedCrystalId = -1;
-            lastCrystalPlaceTime = 0;
-            buffer = 0.0;
+            handleWorldReset();
         }
     }
 
@@ -114,14 +114,7 @@ public class AutoCrystalA extends Check implements PacketReceiveListener, Packet
         final PacketTypeCommon packetType = event.getPacketType();
 
         if (packetType == PacketType.Play.Client.PLAYER_BLOCK_PLACEMENT) {
-            WrapperPlayClientPlayerBlockPlacement place = new WrapperPlayClientPlayerBlockPlacement(event);
-            ItemStack held = place.getHand() == InteractionHand.OFF_HAND ? player.inventory.getOffHand() : player.inventory.getHeldItem();
-            if (held.getType() == ItemTypes.END_CRYSTAL) {
-                StateType clicked = player.compensatedWorld.getBlock(place.getBlockPosition()).getType();
-                if (clicked == StateTypes.OBSIDIAN || clicked == StateTypes.BEDROCK) {
-                    lastCrystalPlaceTime = System.currentTimeMillis();
-                }
-            }
+            handleBlockPlacement(event);
             return;
         }
 
@@ -139,54 +132,146 @@ public class AutoCrystalA extends Check implements PacketReceiveListener, Packet
         }
     }
 
-    private void handleAttack(PacketReceiveEvent event, int entityId) {
-        final boolean isKnownCrystal = knownCrystalIds.contains(entityId)
-                || (player.compensatedEntities.getEntity(entityId) != null
-                && player.compensatedEntities.getEntity(entityId).getType() == EntityTypes.END_CRYSTAL);
-
-        final long now = System.currentTimeMillis();
-        final boolean recentlyPlaced = (now - lastCrystalPlaceTime) < 1500L;
-
-        if (recentlyPlaced && highestSpawnedCrystalId != -1 && entityId > highestSpawnedCrystalId) {
-            buffer += 1.5;
-            if (buffer >= 1.5) {
-                if (flag(V_PREDICT.write(verbose())
-                        .str("id_predict_unspawned")
-                        .sint(entityId)
-                        .sint(entityId - highestSpawnedCrystalId)
-                        .sint(0)
-                        .sint(player.lastTransactionReceived.get()))
-                        && shouldModifyPackets()) {
-                    event.setCancelled(true);
-                    player.onPacketCancel();
-                }
-            }
+    private void handleEntitySpawn(PacketSendEvent event) {
+        WrapperPlayServerSpawnEntity spawn = new WrapperPlayServerSpawnEntity(event);
+        if (spawn.getEntityType() != EntityTypes.END_CRYSTAL) {
             return;
         }
 
-        if (isKnownCrystal) {
-            final int spawnTrans = crystalSpawnTransactions.get(entityId);
-            final int lastAck = player.lastTransactionReceived.get();
+        final int entityId = spawn.getEntityId();
+        if (knownCrystalIds.size() >= MAX_TRACKED_CRYSTALS) {
+            knownCrystalIds.clear();
+            crystalSpawnTransactions.clear();
+        }
 
-            if (spawnTrans != -1 && lastAck < spawnTrans) {
-                final int transDiff = spawnTrans - lastAck;
-                buffer += 1.0;
-                if (buffer >= 1.0) {
-                    if (flag(V_PREDICT.write(verbose())
-                            .str("spawn_unconfirmed")
-                            .sint(entityId)
-                            .sint(transDiff)
-                            .sint(spawnTrans)
-                            .sint(lastAck))
-                            && shouldModifyPackets()) {
-                        event.setCancelled(true);
-                        player.onPacketCancel();
-                    }
-                }
-                return;
-            }
+        knownCrystalIds.add(entityId);
+        highestSpawnedCrystalId = Math.max(highestSpawnedCrystalId, entityId);
 
-            buffer = Math.max(0.0, buffer - 0.1);
+        event.getTasksAfterSend().add(() -> {
+            player.sendTransaction();
+            final int transaction = player.lastTransactionSent.get();
+            crystalSpawnTransactions.put(entityId, transaction);
+        });
+    }
+
+    private void handleEntityDestroy(PacketSendEvent event) {
+        WrapperPlayServerDestroyEntities destroy = new WrapperPlayServerDestroyEntities(event);
+        for (int id : destroy.getEntityIds()) {
+            crystalSpawnTransactions.remove(id);
+            knownCrystalIds.remove(id);
+        }
+    }
+
+    private void handleWorldReset() {
+        crystalSpawnTransactions.clear();
+        knownCrystalIds.clear();
+        highestSpawnedCrystalId = NO_ENTITY_ID;
+        lastCrystalPlaceTime = 0;
+        buffer = 0.0;
+    }
+
+    private void handleBlockPlacement(PacketReceiveEvent event) {
+        WrapperPlayClientPlayerBlockPlacement place = new WrapperPlayClientPlayerBlockPlacement(event);
+        if (!isHoldingEndCrystal(place.getHand())) {
+            return;
+        }
+
+        StateType clickedBlock = player.compensatedWorld.getBlock(place.getBlockPosition()).getType();
+        if (isCrystalBaseBlock(clickedBlock)) {
+            lastCrystalPlaceTime = System.currentTimeMillis();
+        }
+    }
+
+    private boolean isHoldingEndCrystal(InteractionHand hand) {
+        ItemStack held = hand == InteractionHand.OFF_HAND
+                ? player.inventory.getOffHand()
+                : player.inventory.getHeldItem();
+        return held != null && held.getType() == ItemTypes.END_CRYSTAL;
+    }
+
+    private boolean isCrystalBaseBlock(StateType stateType) {
+        return stateType == StateTypes.OBSIDIAN || stateType == StateTypes.BEDROCK;
+    }
+
+    private void handleAttack(PacketReceiveEvent event, int entityId) {
+        final long now = System.currentTimeMillis();
+
+        if (checkPredictedEntityId(event, entityId, now)) {
+            crystalSpawnTransactions.remove(entityId);
+            knownCrystalIds.remove(entityId);
+            return;
+        }
+
+        if (checkUnconfirmedSpawn(event, entityId)) {
+            crystalSpawnTransactions.remove(entityId);
+            knownCrystalIds.remove(entityId);
+            return;
+        }
+
+        if (isKnownCrystal(entityId)) {
+            buffer = Math.max(0.0, buffer - BUFFER_DECAY);
+            crystalSpawnTransactions.remove(entityId);
+            knownCrystalIds.remove(entityId);
+        }
+    }
+
+    private boolean checkPredictedEntityId(PacketReceiveEvent event, int entityId, long now) {
+        final boolean recentlyPlaced = (now - lastCrystalPlaceTime) < RECENT_PLACEMENT_WINDOW_MS;
+        if (!recentlyPlaced || highestSpawnedCrystalId == NO_ENTITY_ID || entityId <= highestSpawnedCrystalId) {
+            return false;
+        }
+
+        buffer += BUFFER_INCREMENT_UNSPAWNED;
+        if (buffer >= BUFFER_VIOLATION_THRESHOLD) {
+            int idDiff = entityId - highestSpawnedCrystalId;
+            flagAndCancel(event, V_PREDICT.write(verbose())
+                    .str("id_predict_unspawned")
+                    .sint(entityId)
+                    .sint(idDiff)
+                    .sint(0)
+                    .sint(player.lastTransactionReceived.get()));
+        }
+        return true;
+    }
+
+    private boolean checkUnconfirmedSpawn(PacketReceiveEvent event, int entityId) {
+        if (!isKnownCrystal(entityId)) {
+            return false;
+        }
+
+        final int spawnTransaction = crystalSpawnTransactions.get(entityId);
+        final int lastAcknowledgedTransaction = player.lastTransactionReceived.get();
+
+        if (spawnTransaction == NO_TRANSACTION || lastAcknowledgedTransaction >= spawnTransaction) {
+            return false;
+        }
+
+        final int transactionDiff = spawnTransaction - lastAcknowledgedTransaction;
+        buffer += BUFFER_INCREMENT_UNCONFIRMED;
+
+        if (buffer >= BUFFER_VIOLATION_THRESHOLD) {
+            flagAndCancel(event, V_PREDICT.write(verbose())
+                    .str("spawn_unconfirmed")
+                    .sint(entityId)
+                    .sint(transactionDiff)
+                    .sint(spawnTransaction)
+                    .sint(lastAcknowledgedTransaction));
+        }
+        return true;
+    }
+
+    private boolean isKnownCrystal(int entityId) {
+        if (knownCrystalIds.contains(entityId)) {
+            return true;
+        }
+        var compensated = player.compensatedEntities.getEntity(entityId);
+        return compensated != null && compensated.getType() == EntityTypes.END_CRYSTAL;
+    }
+
+    private void flagAndCancel(PacketReceiveEvent event, Verbose.Writer verboseWriter) {
+        if (flag(verboseWriter) && shouldModifyPackets()) {
+            event.setCancelled(true);
+            player.onPacketCancel();
         }
     }
 }

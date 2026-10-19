@@ -10,23 +10,32 @@ import ac.grim.grimac.utils.anticheat.update.BlockPlace;
 import com.github.retrooper.packetevents.event.PacketReceiveEvent;
 import com.github.retrooper.packetevents.protocol.entity.type.EntityTypes;
 import com.github.retrooper.packetevents.protocol.packettype.PacketType;
+import com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon;
 import com.github.retrooper.packetevents.protocol.player.ClientVersion;
 import com.github.retrooper.packetevents.protocol.world.BlockFace;
 
 @CheckData(name = "MultiActionsG", stableKey = "grim.multiactions.action_while_rowing", description = "Attacking or using items while rowing a boat", experimental = true)
 public class MultiActionsG extends BlockPlaceCheck implements PacketReceiveListener, BlockPlaceListener {
+
     private static final Verbose V = Verbose
             .of("action=interact")
             .or("action=attack")
             .or("action=spectateEntity")
             .or("action=use")
-            .or("action=place"); // shape index == ACTION_* value
+            .or("action=place");
 
     private static final int ACTION_INTERACT = 0;
     private static final int ACTION_ATTACK = 1;
     private static final int ACTION_SPECTATE_ENTITY = 2;
     private static final int ACTION_USE = 3;
     private static final int ACTION_PLACE = 4;
+
+    private static final PacketTypeCommon[] HANDLED_PACKETS = new PacketTypeCommon[]{
+            PacketType.Play.Client.INTERACT_ENTITY,
+            PacketType.Play.Client.ATTACK,
+            PacketType.Play.Client.SPECTATE_ENTITY,
+            PacketType.Play.Client.USE_ITEM
+    };
 
     public MultiActionsG(GrimPlayer player) {
         super(player);
@@ -37,31 +46,38 @@ public class MultiActionsG extends BlockPlaceCheck implements PacketReceiveListe
         return player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_9);
     }
 
+    @Override
+    public PacketTypeCommon[] getHandledPacketTypes() {
+        return HANDLED_PACKETS;
+    }
+
     private Verbose.Writer writeAction(int action) {
         return V.write(verbose(), action);
     }
 
     @Override
     public void onPacketReceive(PacketReceiveEvent event) {
-        if (event.getPacketType() == PacketType.Play.Client.INTERACT_ENTITY && isCheckActive()
+        final PacketTypeCommon packetType = event.getPacketType();
+
+        if (packetType == PacketType.Play.Client.INTERACT_ENTITY && isCheckActive()
                 && flag(writeAction(ACTION_INTERACT)) && shouldModifyPackets()) {
             event.setCancelled(true);
             player.onPacketCancel();
         }
 
-        if (event.getPacketType() == PacketType.Play.Client.ATTACK && isCheckActive()
+        if (packetType == PacketType.Play.Client.ATTACK && isCheckActive()
                 && flag(writeAction(ACTION_ATTACK)) && shouldModifyPackets()) {
             event.setCancelled(true);
             player.onPacketCancel();
         }
 
-        if (event.getPacketType() == PacketType.Play.Client.SPECTATE_ENTITY && isCheckActive()
+        if (packetType == PacketType.Play.Client.SPECTATE_ENTITY && isCheckActive()
                 && flag(writeAction(ACTION_SPECTATE_ENTITY)) && shouldModifyPackets()) {
             event.setCancelled(true);
             player.onPacketCancel();
         }
 
-        if (event.getPacketType() == PacketType.Play.Client.USE_ITEM && isCheckActive()
+        if (packetType == PacketType.Play.Client.USE_ITEM && isCheckActive()
                 && flag(writeAction(ACTION_USE)) && shouldModifyPackets()) {
             event.setCancelled(true);
             player.onPacketCancel();
@@ -77,7 +93,7 @@ public class MultiActionsG extends BlockPlaceCheck implements PacketReceiveListe
     }
 
     public boolean isCheckActive() {
-        return !player.vehicleData.wasVehicleSwitch // one tick off?
+        return !player.vehicleData.wasVehicleSwitch
                 && player.inVehicle() && player.compensatedEntities.self.getRiding().getType().isInstanceOf(EntityTypes.BOAT)
                 && (player.vehicleData.nextVehicleForward != 0 || player.vehicleData.nextVehicleHorizontal != 0);
     }

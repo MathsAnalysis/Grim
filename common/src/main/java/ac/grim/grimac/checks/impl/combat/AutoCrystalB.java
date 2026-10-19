@@ -19,7 +19,12 @@ import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientAt
 import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientInteractEntity;
 import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientPlayerBlockPlacement;
 
-@CheckData(name = "AutoCrystalB", stableKey = "grim.combat.autocrystal.b", description = "Automated crystal place-break timing consistency or artificial random jitter", experimental = true)
+@CheckData(
+        name = "AutoCrystalB",
+        stableKey = "grim.combat.autocrystal.b",
+        description = "Automated crystal place-break timing consistency or artificial random jitter",
+        experimental = true
+)
 public class AutoCrystalB extends Check implements PacketReceiveListener {
 
     private static final Verbose V_STATS = Verbose.of("pattern={str}, mean={f64:%.2f}ms, stdDev={f64:%.2f}ms, skew={f64:%.2f}, kurt={f64:%.2f}");
@@ -27,7 +32,31 @@ public class AutoCrystalB extends Check implements PacketReceiveListener {
     private static final int WINDOW_SIZE = 16;
     private static final int MIN_SAMPLES_FOR_EVAL = 12;
 
-    private static final com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon[] RECEIVE_PACKETS = new com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon[]{
+    private static final long MAX_CRYSTAL_ATTACK_DELTA_MS = 1200L;
+    private static final long MAX_UNRESOLVED_ATTACK_DELTA_MS = 400L;
+
+    private static final double LOW_VARIANCE_MAX_STDDEV = 7.5;
+    private static final double LOW_VARIANCE_MAX_MEAN = 300.0;
+    private static final double LOW_VARIANCE_BUFFER_INCREMENT = 2.0;
+
+    private static final double UNIFORM_JITTER_MAX_STDDEV = 35.0;
+    private static final double UNIFORM_JITTER_MAX_ABS_SKEW = 0.22;
+    private static final double UNIFORM_JITTER_MAX_KURTOSIS = -0.85;
+    private static final double UNIFORM_JITTER_BUFFER_INCREMENT = 1.8;
+
+    private static final double INHUMAN_SPEED_MAX_MEAN = 25.0;
+    private static final double INHUMAN_SPEED_MAX_STDDEV = 15.0;
+    private static final double INHUMAN_SPEED_BUFFER_INCREMENT = 2.5;
+
+    private static final double LEGIT_MIN_STDDEV = 22.0;
+    private static final double LEGIT_MIN_SKEWNESS = 0.45;
+    private static final double LEGIT_MIN_KURTOSIS = -0.5;
+    private static final double LEGIT_BUFFER_DECAY = 0.35;
+
+    private static final double BUFFER_VIOLATION_THRESHOLD = 5.0;
+    private static final double BUFFER_MAX_CAP = 8.0;
+
+    private static final PacketTypeCommon[] RECEIVE_PACKETS = new PacketTypeCommon[]{
             PacketType.Play.Client.PLAYER_BLOCK_PLACEMENT,
             PacketType.Play.Client.ATTACK,
             PacketType.Play.Client.INTERACT_ENTITY
@@ -62,15 +91,7 @@ public class AutoCrystalB extends Check implements PacketReceiveListener {
         final PacketTypeCommon packetType = event.getPacketType();
 
         if (packetType == PacketType.Play.Client.PLAYER_BLOCK_PLACEMENT) {
-            WrapperPlayClientPlayerBlockPlacement place = new WrapperPlayClientPlayerBlockPlacement(event);
-            ItemStack held = place.getHand() == InteractionHand.OFF_HAND ? player.inventory.getOffHand() : player.inventory.getHeldItem();
-            if (held.getType() == ItemTypes.END_CRYSTAL) {
-                StateType clicked = player.compensatedWorld.getBlock(place.getBlockPosition()).getType();
-                if (clicked == StateTypes.OBSIDIAN || clicked == StateTypes.BEDROCK) {
-                    lastCrystalPlaceTime = System.currentTimeMillis();
-                    pendingCrystalHit = true;
-                }
-            }
+            handleBlockPlacement(event);
             return;
         }
 
@@ -88,24 +109,62 @@ public class AutoCrystalB extends Check implements PacketReceiveListener {
         }
     }
 
-    private void handleAttack(int entityId) {
-        if (!pendingCrystalHit) return;
+    private void handleBlockPlacement(PacketReceiveEvent event) {
+        WrapperPlayClientPlayerBlockPlacement place = new WrapperPlayClientPlayerBlockPlacement(event);
+        if (!isHoldingEndCrystal(place.getHand())) {
+            return;
+        }
 
-        final boolean isCrystal = player.compensatedEntities.getEntity(entityId) != null
-                && player.compensatedEntities.getEntity(entityId).getType() == EntityTypes.END_CRYSTAL;
+        StateType clickedBlock = player.compensatedWorld.getBlock(place.getBlockPosition()).getType();
+        if (isCrystalBaseBlock(clickedBlock)) {
+            lastCrystalPlaceTime = System.currentTimeMillis();
+            pendingCrystalHit = true;
+        }
+    }
+
+    private boolean isHoldingEndCrystal(InteractionHand hand) {
+        ItemStack held = hand == InteractionHand.OFF_HAND
+                ? player.inventory.getOffHand()
+                : player.inventory.getHeldItem();
+        return held != null && held.getType() == ItemTypes.END_CRYSTAL;
+    }
+
+    private boolean isCrystalBaseBlock(StateType stateType) {
+        return stateType == StateTypes.OBSIDIAN || stateType == StateTypes.BEDROCK;
+    }
+
+    private void handleAttack(int entityId) {
+        if (!pendingCrystalHit) {
+            return;
+        }
 
         final long now = System.currentTimeMillis();
         final long delta = now - lastCrystalPlaceTime;
         pendingCrystalHit = false;
 
-        if (player.canSkipTicks() || !player.isTickingReliablyFor(3)) {
+        if (isConnectionUnstable()) {
             return;
         }
 
-        if (delta >= 0 && delta <= 1200L && (isCrystal || delta <= 400L)) {
+        final boolean isKnownCrystal = isCrystalEntity(entityId);
+        if (isValidTimingSample(delta, isKnownCrystal)) {
             addSample((double) delta);
             evaluateSamples();
         }
+    }
+
+    private boolean isConnectionUnstable() {
+        return player.canSkipTicks() || !player.isTickingReliablyFor(3);
+    }
+
+    private boolean isCrystalEntity(int entityId) {
+        var entity = player.compensatedEntities.getEntity(entityId);
+        return entity != null && entity.getType() == EntityTypes.END_CRYSTAL;
+    }
+
+    private boolean isValidTimingSample(long delta, boolean isKnownCrystal) {
+        return delta >= 0 && delta <= MAX_CRYSTAL_ATTACK_DELTA_MS
+                && (isKnownCrystal || delta <= MAX_UNRESOLVED_ATTACK_DELTA_MS);
     }
 
     private void addSample(double delta) {
@@ -117,80 +176,96 @@ public class AutoCrystalB extends Check implements PacketReceiveListener {
     }
 
     private void evaluateSamples() {
-        if (sampleCount < MIN_SAMPLES_FOR_EVAL) return;
-
-        double sum = 0.0;
-        for (int i = 0; i < sampleCount; i++) {
-            sum += intervals[i];
-        }
-        final double mean = sum / sampleCount;
-
-        double sumSqDiff = 0.0;
-        for (int i = 0; i < sampleCount; i++) {
-            double diff = intervals[i] - mean;
-            sumSqDiff += diff * diff;
-        }
-        final double variance = sumSqDiff / (sampleCount - 1);
-        final double stdDev = Math.sqrt(variance);
-
-        final double safeStdDev = Math.max(stdDev, 0.001);
-
-        double m3 = 0.0;
-        double m4 = 0.0;
-        for (int i = 0; i < sampleCount; i++) {
-            double norm = (intervals[i] - mean) / safeStdDev;
-            double normSq = norm * norm;
-            m3 += normSq * norm;
-            m4 += normSq * normSq;
-        }
-
-        final double skewness = m3 / sampleCount;
-        final double excessKurtosis = (m4 / sampleCount) - 3.0;
-
-        if (stdDev < 7.5 && mean < 300.0) {
-            buffer += 2.0;
-            if (buffer >= 5.0) {
-                flag(V_STATS.write(verbose())
-                        .str("low_variance")
-                        .f64(mean)
-                        .f64(stdDev)
-                        .f64(skewness)
-                        .f64(excessKurtosis));
-                buffer = Math.min(buffer, 8.0);
-            }
+        if (sampleCount < MIN_SAMPLES_FOR_EVAL) {
             return;
         }
 
-        if (stdDev < 35.0 && Math.abs(skewness) < 0.22 && excessKurtosis < -0.85) {
-            buffer += 1.8;
-            if (buffer >= 5.0) {
-                flag(V_STATS.write(verbose())
-                        .str("uniform_jitter")
-                        .f64(mean)
-                        .f64(stdDev)
-                        .f64(skewness)
-                        .f64(excessKurtosis));
-                buffer = Math.min(buffer, 8.0);
-            }
+        SampleStatistics stats = SampleStatistics.compute(intervals, sampleCount);
+
+        if (isLowVariancePattern(stats)) {
+            handleViolation("low_variance", stats, LOW_VARIANCE_BUFFER_INCREMENT);
             return;
         }
 
-        if (mean < 25.0 && stdDev < 15.0) {
-            buffer += 2.5;
-            if (buffer >= 5.0) {
-                flag(V_STATS.write(verbose())
-                        .str("inhuman_speed")
-                        .f64(mean)
-                        .f64(stdDev)
-                        .f64(skewness)
-                        .f64(excessKurtosis));
-                buffer = Math.min(buffer, 8.0);
-            }
+        if (isUniformJitterPattern(stats)) {
+            handleViolation("uniform_jitter", stats, UNIFORM_JITTER_BUFFER_INCREMENT);
             return;
         }
 
-        if (stdDev >= 22.0 && skewness > 0.45 && excessKurtosis > -0.5) {
-            buffer = Math.max(0.0, buffer - 0.35);
+        if (isInhumanSpeedPattern(stats)) {
+            handleViolation("inhuman_speed", stats, INHUMAN_SPEED_BUFFER_INCREMENT);
+            return;
+        }
+
+        if (isHumanVariancePattern(stats)) {
+            buffer = Math.max(0.0, buffer - LEGIT_BUFFER_DECAY);
+        }
+    }
+
+    private boolean isLowVariancePattern(SampleStatistics stats) {
+        return stats.stdDev() < LOW_VARIANCE_MAX_STDDEV && stats.mean() < LOW_VARIANCE_MAX_MEAN;
+    }
+
+    private boolean isUniformJitterPattern(SampleStatistics stats) {
+        return stats.stdDev() < UNIFORM_JITTER_MAX_STDDEV
+                && Math.abs(stats.skewness()) < UNIFORM_JITTER_MAX_ABS_SKEW
+                && stats.excessKurtosis() < UNIFORM_JITTER_MAX_KURTOSIS;
+    }
+
+    private boolean isInhumanSpeedPattern(SampleStatistics stats) {
+        return stats.mean() < INHUMAN_SPEED_MAX_MEAN && stats.stdDev() < INHUMAN_SPEED_MAX_STDDEV;
+    }
+
+    private boolean isHumanVariancePattern(SampleStatistics stats) {
+        return stats.stdDev() >= LEGIT_MIN_STDDEV
+                && stats.skewness() > LEGIT_MIN_SKEWNESS
+                && stats.excessKurtosis() > LEGIT_MIN_KURTOSIS;
+    }
+
+    private void handleViolation(String pattern, SampleStatistics stats, double bufferIncrement) {
+        buffer += bufferIncrement;
+        if (buffer >= BUFFER_VIOLATION_THRESHOLD) {
+            flag(V_STATS.write(verbose())
+                    .str(pattern)
+                    .f64(stats.mean())
+                    .f64(stats.stdDev())
+                    .f64(stats.skewness())
+                    .f64(stats.excessKurtosis()));
+            buffer = Math.min(buffer, BUFFER_MAX_CAP);
+        }
+    }
+
+    private record SampleStatistics(double mean, double stdDev, double skewness, double excessKurtosis) {
+
+        public static SampleStatistics compute(double[] samples, int count) {
+            double sum = 0.0;
+            for (int i = 0; i < count; i++) {
+                sum += samples[i];
+            }
+            final double mean = sum / count;
+
+            double sumSqDiff = 0.0;
+            for (int i = 0; i < count; i++) {
+                double diff = samples[i] - mean;
+                sumSqDiff += diff * diff;
+            }
+            final double variance = sumSqDiff / (count - 1);
+            final double stdDev = Math.sqrt(variance);
+            final double safeStdDev = Math.max(stdDev, 0.001);
+
+            double m3 = 0.0;
+            double m4 = 0.0;
+            for (int i = 0; i < count; i++) {
+                double norm = (samples[i] - mean) / safeStdDev;
+                double normSq = norm * norm;
+                m3 += normSq * norm;
+                m4 += normSq * normSq;
+            }
+
+            final double skewness = m3 / count;
+            final double excessKurtosis = (m4 / count) - 3.0;
+
+            return new SampleStatistics(mean, stdDev, skewness, excessKurtosis);
         }
     }
 }

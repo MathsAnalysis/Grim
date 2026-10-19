@@ -41,6 +41,10 @@ public class PacketPlayerDigging extends PacketListenerAbstract {
             return;
         }
 
+        if (item.getType() == ItemTypes.ENDER_PEARL) {
+            player.uncertaintyHandler.lastEnderPearlThrow.reset();
+        }
+
         if (player.checkManager.getCompensatedCooldown().hasItem(item)) {
             boolean valid = !player.packetStateData.isSlowedByUsingItem() || player.packetStateData.itemInUseHand == hand;
             if (valid) player.packetStateData.setSlowedByUsingItem(false); // resync, not required

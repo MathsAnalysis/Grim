@@ -77,12 +77,15 @@ public record DefaultResyncHandler(GrimPlayer player) implements ResyncHandler {
                                 int blockIndex = 0;
                                 // Alright, we are now in a chunk section
                                 // This can be used to construct and send a multi block change
+                                int globalChunkX = currChunkX << 4;
+                                int globalChunkY = currChunkY << 4;
+                                int globalChunkZ = currChunkZ << 4;
                                 for (int currZ = minZ; currZ <= maxZ; ++currZ) {
                                     for (int currX = minX; currX <= maxX; ++currX) {
                                         for (int currY = minY; currY <= maxY; ++currY) {
-                                            int rawId = chunk.getBlockID(currX, currY | (currChunkY << 4), currZ);
+                                            int rawId = chunk.getBlockID(currX, currY + globalChunkY, currZ);
                                             int networkId = translator.translate(rawId);
-                                            encodedBlocks[blockIndex++] = new WrapperPlayServerMultiBlockChange.EncodedBlock(networkId, currX, currY | (currChunkY << 4), currZ);
+                                            encodedBlocks[blockIndex++] = new WrapperPlayServerMultiBlockChange.EncodedBlock(networkId, currX + globalChunkX, currY + globalChunkY, currZ + globalChunkZ);
                                         }
                                     }
                                 }

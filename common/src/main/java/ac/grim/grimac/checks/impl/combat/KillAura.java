@@ -12,8 +12,8 @@ import ac.grim.grimac.utils.data.HitData;
 import ac.grim.grimac.utils.data.Pair;
 import ac.grim.grimac.utils.data.packetentity.PacketEntity;
 import ac.grim.grimac.utils.data.packetentity.dragon.PacketEntityEnderDragonPart;
-import ac.grim.grimac.utils.math.Vector3dm;
 import ac.grim.grimac.utils.nmsutil.Ray;
+import ac.grim.grimac.utils.math.Vector3dm;
 import ac.grim.grimac.utils.nmsutil.ReachUtils;
 import ac.grim.grimac.utils.nmsutil.WorldRayTrace;
 import com.github.retrooper.packetevents.PacketEvents;
@@ -23,6 +23,7 @@ import com.github.retrooper.packetevents.protocol.component.ComponentTypes;
 import com.github.retrooper.packetevents.protocol.component.builtin.item.ItemAttackRange;
 import com.github.retrooper.packetevents.protocol.entity.type.EntityTypes;
 import com.github.retrooper.packetevents.protocol.packettype.PacketType;
+import com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon;
 import com.github.retrooper.packetevents.protocol.player.ClientVersion;
 import com.github.retrooper.packetevents.protocol.player.GameMode;
 import com.github.retrooper.packetevents.protocol.world.BlockFace;
@@ -51,6 +52,17 @@ public class KillAura extends Check implements PacketReceiveListener {
     private static final double AIM_MIN_DISTANCE = 1.0;
     private static final double MAX_LOCATION_UNCERTAINTY = 0.05;
 
+    private static final PacketTypeCommon[] HANDLED_PACKETS = new PacketTypeCommon[]{
+            PacketType.Play.Client.ATTACK,
+            PacketType.Play.Client.INTERACT_ENTITY,
+            PacketType.Play.Client.PLAYER_FLYING,
+            PacketType.Play.Client.PLAYER_POSITION,
+            PacketType.Play.Client.PLAYER_POSITION_AND_ROTATION,
+            PacketType.Play.Client.PLAYER_ROTATION,
+            PacketType.Play.Client.PONG,
+            PacketType.Play.Client.WINDOW_CONFIRMATION
+    };
+
     private final Int2ObjectMap<Vector3d> attackQueue = new Int2ObjectOpenHashMap<>();
     private final List<SimpleCollisionBox> blockBoxes = new ArrayList<>();
     private final boolean[] aimSamples = new boolean[AIM_SAMPLES];
@@ -63,13 +75,8 @@ public class KillAura extends Check implements PacketReceiveListener {
         super(player);
     }
 
-    private static final com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon[] HANDLED_PACKETS = new com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon[]{
-            PacketType.Play.Client.ATTACK,
-            PacketType.Play.Client.INTERACT_ENTITY
-    };
-
     @Override
-    public com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon[] getHandledPacketTypes() {
+    public PacketTypeCommon[] getHandledPacketTypes() {
         return HANDLED_PACKETS;
     }
 

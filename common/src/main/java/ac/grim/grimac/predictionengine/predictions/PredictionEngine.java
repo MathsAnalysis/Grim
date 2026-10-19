@@ -735,7 +735,7 @@ public class PredictionEngine {
         int strafeMax = 1;
 
         // Calculate inputs by the players known inputs on 1.21.2+
-        if (player.supportsEndTickPreVia()) {
+        if (player.supportsEndTickPreVia() && player.packetStateData.receivedPlayerInput && !player.uncertaintyHandler.lastTeleportTicks.hasOccurredSince(1)) {
             forwardMin = forwardMax = strafeMin = strafeMax = 0;
 
             final KnownInput knownInput = player.packetStateData.knownInput;

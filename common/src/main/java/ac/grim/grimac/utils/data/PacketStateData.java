@@ -22,6 +22,7 @@ public class PacketStateData {
     public boolean didLastMovementIncludePosition = false;
     // This works on 1.21.2+ only
     public boolean didSendMovementBeforeTickEnd = false;
+    public boolean receivedPlayerInput = false;
     public KnownInput knownInput = KnownInput.DEFAULT;
     public Vector3d lastClaimedPosition = new Vector3d(0, 0, 0);
     public float lastHealth, lastSaturation;
