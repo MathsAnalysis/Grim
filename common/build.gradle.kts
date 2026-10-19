@@ -79,7 +79,9 @@ dependencies {
         isTransitive = false // messes with guava otherwise
     }
 
-    compileOnly(libs.floodgate.api)
+    compileOnly(libs.floodgate.api) {
+        exclude(group = "org.geysermc", module = "common")
+    }
     compileOnly(libs.viaversion)
     compileOnly(libs.viabackwards)
     compileOnly(libs.netty)
@@ -89,7 +91,9 @@ dependencies {
     testImplementation(libs.netty)
     testImplementation(libs.grim.internal.shims)
     testImplementation(libs.viaversion)
-    testImplementation(libs.floodgate.api)
+    testImplementation(libs.floodgate.api) {
+        exclude(group = "org.geysermc", module = "common")
+    }
     testImplementation("net.kyori:adventure-nbt:4.26.1")
     testImplementation("net.kyori:adventure-text-serializer-gson:4.26.1")
     testImplementation("net.kyori:adventure-text-serializer-legacy:4.26.1")
