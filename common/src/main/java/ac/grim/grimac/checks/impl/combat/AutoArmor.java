@@ -146,7 +146,6 @@ public class AutoArmor extends Check implements PacketReceiveListener, PacketSen
         if (packetType == PacketType.Play.Client.PLAYER_ROTATION
                 || packetType == PacketType.Play.Client.PLAYER_POSITION_AND_ROTATION) {
             handlePlayerRotation(event, now);
-            return;
         }
 
         if (isTickPacket(packetType)) {
