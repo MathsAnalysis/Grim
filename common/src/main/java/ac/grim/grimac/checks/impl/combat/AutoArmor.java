@@ -9,6 +9,7 @@ import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.inventory.EquipmentType;
 import ac.grim.grimac.utils.inventory.Inventory;
 import ac.grim.grimac.utils.lists.CorrectingPlayerInventoryStorage;
+import ac.grim.grimac.utils.math.Location;
 import com.github.retrooper.packetevents.event.PacketReceiveEvent;
 import com.github.retrooper.packetevents.event.PacketSendEvent;
 import com.github.retrooper.packetevents.protocol.item.ItemStack;
@@ -187,7 +188,7 @@ public class AutoArmor extends Check implements PacketReceiveListener, PacketSen
         float pitch = flying.getLocation().getPitch();
 
         if (initializedLook && canTrackRotation()) {
-            float deltaYaw = Math.abs(yaw - lastYaw);
+            float deltaYaw = Math.abs(Location.normalizeYaw(yaw - lastYaw));
             float deltaPitch = Math.abs(pitch - lastPitch);
             if (deltaYaw > MIN_SIGNIFICANT_ROTATION_DEGREES || deltaPitch > MIN_SIGNIFICANT_ROTATION_DEGREES) {
                 lastSignificantRotationTime = now;
