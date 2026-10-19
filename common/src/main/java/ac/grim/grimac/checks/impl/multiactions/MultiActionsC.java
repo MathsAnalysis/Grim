@@ -31,7 +31,7 @@ public class MultiActionsC extends Check implements PreViaPacketReceiveListener 
 
     @Contract(pure = true)
     public static boolean isVerboseInput(@NotNull GrimPlayer player) {
-        return player.supportsEndTick() && player.packetStateData.knownInput.moving();
+        return player.supportsEndTickPreVia() && player.packetStateData.knownInput.moving();
     }
 
     private static final com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon[] HANDLED_PACKETS = new com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon[]{
