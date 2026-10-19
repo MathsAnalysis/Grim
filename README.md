@@ -1,125 +1,125 @@
 <div align="center">
- <h1>GrimAC</h1>
 
- <div>
-  <a href="https://github.com/GrimAnticheat/Grim/actions/workflows/gradle-publish.yml">
-   <img alt="Workflow" src="https://img.shields.io/github/actions/workflow/status/GrimAnticheat/Grim/gradle-publish.yml?style=flat&logo=github"/>
-  </a>&nbsp;&nbsp;
-  <a href="https://modrinth.com/plugin/grimac">
-   <img alt="Modrinth" src="https://img.shields.io/modrinth/v/LJNGWSvH?style=flat&label=version&logo=modrinth">
-  </a>&nbsp;&nbsp;
-  <a href="https://modrinth.com/plugin/grimac#download">
-   <img alt="Downloads" src="https://img.shields.io/modrinth/dt/LJNGWSvH?style=flat&logo=modrinth&label=downloads&link=https%3A%2F%2Fmodrinth.com%2Fplugin%2Fgrimac%23download">
-  </a>&nbsp;&nbsp;
-  <a href="https://discord.grim.ac">
-   <img alt="Discord" src="https://img.shields.io/discord/811396969670901800?style=flat&label=discord&logo=discord">
-  </a>
- </div>
- <br>
+# Grim — fork ottimizzata
+
+[![Build](https://github.com/MathsAnalysis/Grim/actions/workflows/gradle-publish.yml/badge.svg?branch=2.0)](https://github.com/MathsAnalysis/Grim/actions/workflows/gradle-publish.yml)
+[![Release](https://img.shields.io/github/v/release/MathsAnalysis/Grim?include_prereleases&label=release)](https://github.com/MathsAnalysis/Grim/releases)
+[![License](https://img.shields.io/github/license/MathsAnalysis/Grim)](LICENSE)
+
 </div>
 
-GrimAC is an open source Minecraft anticheat designed to support the latest versions of Minecraft.
-It currently supports Minecraft versions 1.8–26.3. Geyser players are fully exempt from the anticheat to prevent false positives.
-This project is considered feature-complete for the 2.0 (open-source) branch. If you would like a bug fix or enhancement and cannot sponsor the work, pull requests are welcome.
-A premium version is planned, which will offer additional subscription-based paid checks, such as heuristics.
+Questo repository è un fork del ramo `2.0` di [GrimAnticheat/Grim](https://github.com/GrimAnticheat/Grim),
+l'anticheat open source per Minecraft 1.8–26.3. Il fork si concentra su tre cose:
 
-## Downloads
+- **performance**: meno lavoro sul thread Netty per pacchetto e per tick, meno allocazioni, stato per giocatore
+  ripulito alla disconnessione;
+- **nuovi check** per il combat, il misc, il timer e il breaking, alcuni ancora sperimentali;
+- **correzioni di falsi positivi** emerse dal traffico reale (AutoArmor, KnockbackHandler, prediction, teleport).
 
-- Latest updates:
-  - **[Modrinth](https://modrinth.com/plugin/grimac)** *(recommended)*
-  - GitHub
-  artifacts: [Bukkit](https://nightly.link/GrimAnticheat/Grim/workflows/gradle-publish/2.0/grimac-bukkit.zip), [Fabric](https://nightly.link/GrimAnticheat/Grim/workflows/gradle-publish/2.0/grimac-fabric.zip) *(bleeding edge)*
-- Major releases only:
-  - ~~[Hangar](https://hangar.papermc.io/GrimAnticheat/GrimAnticheat)~~
-  - ~~[SpigotMC](https://www.spigotmc.org/resources/grim-anticheat.99923/)~~
+Il progetto upstream resta la fonte di riferimento per documentazione e supporto. Questo fork non è affiliato
+al progetto GrimAnticheat e non viene pubblicato sui canali ufficiali (Modrinth, Hangar, SpigotMC).
 
-## Requirements & Installation
+## Stato della build
 
-- Java 17 or higher. *For more details, see [Updating-to-Java-17](https://github.com/GrimAnticheat/Grim/wiki/Updating-to-Java-17).*
-- A Spigot, Paper, Folia, or Fabric server environment. *For more details, see [Supported-environments](https://github.com/GrimAnticheat/Grim/wiki/Supported-environments).*
+Il badge in alto mostra lo stato dell'ultimo run del workflow
+[`gradle-publish.yml`](.github/workflows/gradle-publish.yml) sul ramo `2.0`.
 
-If you use a proxy such as Velocity or BungeeCord:
-- If you use Geyser, Floodgate must be installed on the backend server (where Grim is) so Grim can access the Floodgate API.
-- If you use ViaVersion, it must be installed on the backend server (where Grim is) ONLY.
-  Grim does not support having ViaVersion installed on the proxy, even if it is also installed on the backend.
+| Evento | Workflow | Cosa produce |
+| --- | --- | --- |
+| Push su `2.0` con modifiche a codice o build | `gradle-publish.yml` (dev) | jar `grimac-bukkit` e `grimac-fabric` come artifact del run, changelog generato con git-cliff |
+| Release pubblicata su GitHub | `release.yml` | build di release, jar allegati alla GitHub Release dal job `attach-jars-to-release` |
+| Avvio manuale (`workflow_dispatch`) | `gradle-publish.yml` | build con opzioni: build scan, pubblicazione on/off, runner |
 
-## Resources
+Il workflow non pubblica su Modrinth né sull'API di aggiornamento a meno che i secret `MODRINTH_ID`,
+`MODRINTH_TOKEN`, `BUILD_UPDATE_TOKEN` e `BUILD_UPDATE_URL` non siano configurati nel repository. Senza questi
+secret i jar vengono comunque costruiti e caricati come artifact.
 
-- For documentation and examples visit the [Wiki](https://github.com/GrimAnticheat/Grim/wiki).
-- For answers to commonly asked questions visit the [FAQ](https://github.com/GrimAnticheat/Grim/wiki/FAQ).
-- For community support and project discussion join our [Discord](https://discord.grim.ac).
+### Scaricare un jar
 
-## Pull Requests
+- **Build di sviluppo:** apri la scheda *Actions*, scegli l'ultimo run verde sul ramo `2.0` e scarica
+  l'artifact `grimac-bukkit` o `grimac-fabric`. Gli artifact restano disponibili per un periodo limitato.
+- **Release:** apri la scheda *Releases* e scarica i jar allegati alla release.
 
-See [Contributing](CONTRIBUTING.md) for more information about contributing and what our guidelines
-are.
+## Cosa cambia rispetto all'upstream
 
-## Developer Plugin API
+### Ottimizzazioni
 
-Grim's plugin API allows you to integrate Grim into your own plugins. Visit
-the [plugin API repository](https://github.com/GrimAnticheat/GrimAPI) for the source code and more
-information.
+- Il dispatch dei pacchetti usa l'elenco dei tipi gestiti da ciascun check, così un check riceve solo quello che
+  gli serve.
+- Lo stato per giocatore viene ripulito alla disconnessione, e i tracciamenti di keepalive e crystal hanno un
+  limite.
+- La risoluzione dei pistoni alloca meno oggetti, con una cache di primitive.
+- Il manifest dei messaggi verbose viene memorizzato invece di ricostruito a ogni heartbeat.
+- Il lavoro per le entità nascoste viene saltato quando nessuna entità è nascosta, e la copia dei set di rimbalzo
+  degli slime viene saltata quando non ci sono rimbalzi pendenti.
+- Il contatore dei flag usa un `AtomicInteger` invece di un monitor globale.
 
-## Compiling From Source
+Non abbiamo misurato guadagni di performance su un server di produzione. Le ottimizzazioni sono verificate con
+la compilazione e la suite di test, non con benchmark dal vivo.
 
-1. `git clone https://github.com/GrimAnticheat/Grim.git`
-2. `cd Grim`
-3. `./gradlew build`
-4. The final jars will compile into the `<platform>/build/libs` folders
+### Correzioni
 
-## Grim Supremacy
+- Prediction: niente cascata di setback mentre un setback è in attesa, e gli offset non vengono azzerati
+  prematuramente.
+- Velocity: falsi positivi di AntiKB vicino a scaffolding e danni da caduta; rilevamento della salita.
+- Teleport: ripristino degli offset di knockback ed esplosione quando il secondo passaggio di prediction viene scartato.
+- Breaking e scaffolding: buffer per i mancati RotationBreak e RotationPlace, con target espanso di una soglia di movimento.
+- KillAura: guardia sul range di attacco nullo.
+- Floodgate e Geyser: API non inizializzate gestite senza eccezioni.
 
-What makes Grim stand out against other anticheats?
+### Check nuovi
 
-### Movement Simulation Engine
+"Sperimentale" indica un check marcato come tale nel codice. Nel fork gli esperimenti sono abilitati di default (commit `88517b7be`), quindi questi check possono generare avvisi anche in produzione.
 
-* We have a 1:1 replication of the player's possible movements
-    * This covers everything from basic walking, swimming, knockback, cobwebs, to bubble columns
-    * It even covers riding entities from boats to pigs to striders
-* Built upon covering edge cases to confirm accuracy
-* 1.13+ clients on 1.13+ servers, 1.12- clients on 1.13+ servers, 1.13+ clients on 1.12- servers,
-  and 1.12- clients on 1.12- servers are all supported regardless of the large technical changes
-  between these versions.
-* The order of collisions depends on the client version and is correct
-* Accounts for minor bounding box differences between versions, for example:
-    * Single glass panes will be a + shape for 1.7-1.8 players and * for 1.9+ players
-    * 1.13+ clients on 1.8 servers see the + glass pane hitbox due to ViaVersion
-    * Many other blocks have this extreme attention to detail.
-    * Waterlogged blocks do not exist for 1.12 or below players
-    * Blocks that do not exist in the client's version use ViaVersion's replacement block
-    * Block data that cannot be translated to previous versions is replaced correctly
-    * All vanilla collision boxes have been implemented
+| Check | Categoria | Cosa rileva | Stato |
+| --- | --- | --- | --- |
+| `AutoArmor` | combat | Equipaggiamento automatico dell'armatura | stabile |
+| `AutoTotem` | combat | Uso automatico del totem dell'immortalità | stabile |
+| `AutoTool` | misc | Cambio di slot e ritorno nello stesso tick attorno a uno scavo | stabile |
+| `AutoCrystalA` | combat | Attacco a un end crystal non ancora confermato dal server o con ID predetto | sperimentale |
+| `AutoCrystalB` | combat | Timing place-break automatico o jitter artificiale | sperimentale |
+| `AimAI` (alias `CombatAI`) | combat | Punteggio di pattern di mira e rotazione con un piccolo modello | sperimentale |
+| `KillAura` | combat | Attacco attraverso blocchi, con un contenitore aperto o con mira bloccata sul bersaglio | sperimentale |
+| `GhostHand` | breaking | Rottura di un blocco attraverso un blocco solido | sperimentale |
+| `BlinkA`, `BlinkB` | timer | Pacchetti di movimento oltre il tempo trascorso, o mancato reminder di posizione | sperimentale |
+| `ESP` | movement | Tracciamento di un giocatore in movimento o accovacciato attraverso blocchi solidi | sperimentale |
 
-### Fully asynchronous and multithreaded design
+### Limiti noti
 
-* All movement checks and the overwhelming majority of listeners run on the Netty thread
-* The anticheat can scale to many hundreds of players, if not more
-* Thread safety is carefully thought out
-* The next core allows for this design
+- Nessuna delle modifiche è stata verificata su un server reale. I check sperimentali possono ancora produrre falsi
+  positivi, in particolare `AutoCrystalA`/`AutoCrystalB` e `AimAI`.
+- Sei test di `EnderPearlTeleportSimulationTest` sono disabilitati: lo snapshot di PacketEvents usato dal
+  progetto non inizializza i dati degli item nell'harness di test. Vanno riattivati quando PacketEvents o il
+  setup del test vengono sistemati.
+- I riferimenti alla documentazione (wiki, FAQ, Discord) puntano ancora all'upstream.
 
-### Full world replication
+## Requisiti
 
-* The anticheat keeps a replica of the world for each player
-* The replica is created by listening to chunk data packets, block places, and block changes
-* On all versions, chunks are compressed to 16-64 kb per chunk using palettes
-* Using this cache, the anticheat can safely access the world state
-* Per player, the cache allows for multithreaded design
-* Sending players fake blocks with packets is safe and does not lead to falses
-* The world is recreated for each player to allow lag compensation
-* Client sided blocks cause no issues with packet based blocks. Block glitching does not false the
-  anticheat.
+- **Server:** Spigot, Paper, Folia o Fabric. Java 17 o superiore.
+- **Proxy (Velocity, BungeeCord):** Floodgate e ViaVersion devono essere installati sul server backend dove gira
+  Grim, come nell'upstream.
+- **Build:** JDK 25 (come nel CI). Il modulo `common` usa il toolchain 21 con target 17.
 
-### Latency compensation
+## Compilare da sorgente
 
-* World changes are queued until they reach the player
-* This means breaking blocks under a player does not false the anticheat
-* Everything from flying status to movement speed will be latency compensated
+```bash
+git clone https://github.com/MathsAnalysis/Grim.git
+cd Grim
+./gradlew build
+```
 
-### Inventory compensation
+I jar finiscono in `bukkit/build/libs` e `fabric/build/libs`. I test del modulo comune:
 
-* The player's inventory is tracked to prevent ghost blocks at high latency, and other errors
+```bash
+./gradlew :common:test
+```
 
-### Secure by design, not obscurity
+## Contribuire
 
-* All systems are designed to be highly secure and mathematically impossible to bypass
-* For example, the prediction engine knows all possible movements and cannot be bypassed
+Vedi [CONTRIBUTING.md](CONTRIBUTING.md). Le pull request verso questo fork vengono revisionate prima del merge,
+con particolare attenzione ai falsi positivi.
+
+## Licenza e crediti
+
+Il progetto è distribuito sotto licenza GNU GPLv3, come l'upstream. Le modifiche di questo fork sono
+riconoscibili nella storia dei commit. Grazie a GrimAnticheat e ai contributor dell'upstream per il lavoro di base.
