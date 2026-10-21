@@ -79,9 +79,8 @@ dependencies {
         isTransitive = false // messes with guava otherwise
     }
 
-    compileOnly(libs.floodgate.api) {
-        exclude(group = "org.geysermc", module = "common")
-    }
+    // The self-contained API jar retains DeviceOs; its unshaded POM references a retired Geyser snapshot.
+    compileOnly(variantOf(libs.floodgate.api) { classifier("shaded") }) { isTransitive = false }
     compileOnly(libs.viaversion)
     compileOnly(libs.viabackwards)
     compileOnly(libs.netty)
@@ -91,19 +90,24 @@ dependencies {
     testImplementation(libs.netty)
     testImplementation(libs.grim.internal.shims)
     testImplementation(libs.viaversion)
-    testImplementation(libs.floodgate.api) {
-        exclude(group = "org.geysermc", module = "common")
-    }
+    testImplementation(variantOf(libs.floodgate.api) { classifier("shaded") }) { isTransitive = false }
     testImplementation("net.kyori:adventure-nbt:4.26.1")
     testImplementation("net.kyori:adventure-text-serializer-gson:4.26.1")
     testImplementation("net.kyori:adventure-text-serializer-legacy:4.26.1")
     testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
+    testImplementation("org.xerial:sqlite-jdbc:3.46.1.3")
+    testImplementation("org.mockito:mockito-core:5.14.2")
+    testRuntimeOnly(libs.packetevents.api)
+    testRuntimeOnly(libs.netty)
+    testRuntimeOnly(libs.grim.internal.shims)
+    testRuntimeOnly("com.google.guava:guava:31.0.1-jre")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
 tasks.test {
     useJUnitPlatform()
-    systemProperty("GrimPlatformOverride", "BUKKIT")
+    // The live-write regression resolves Grim's version without a server loader.
+    systemProperty("GrimPlatformOverride", "bukkit")
 }
 
 publishing.publications.create<MavenPublication>("maven") {

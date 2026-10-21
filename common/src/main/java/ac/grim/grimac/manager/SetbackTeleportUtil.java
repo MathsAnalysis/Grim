@@ -40,8 +40,10 @@ import lombok.Getter;
 import lombok.Setter;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Random;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
@@ -234,6 +236,21 @@ public class SetbackTeleportUtil extends GrimProcessor implements PostPrediction
         sendSetback(data);
     }
 
+    private boolean isOnGround(Vector3d position) {
+        SimpleCollisionBox feet = GetBoundingBox.getBoundingBoxFromPosAndSize(player, position.getX(), position.getY(), position.getZ(), player.pose.width, 0);
+
+        List<SimpleCollisionBox> boxes = new ArrayList<>();
+        Collisions.getCollisionBoxes(player, feet.copy().expandMin(0, -Collisions.COLLISION_EPSILON, 0), boxes, false);
+
+        for (SimpleCollisionBox box : boxes) {
+            if (box.collideY(feet, -Collisions.COLLISION_EPSILON) != -Collisions.COLLISION_EPSILON) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private void sendSetback(SetBackData data) {
         isSendingSetback = true;
         Vector3d position = data.getTeleportData().getLocation();
@@ -278,6 +295,7 @@ public class SetbackTeleportUtil extends GrimProcessor implements PostPrediction
             // Min value is 10000000000000000000000000000000 in binary, this makes sure the number is always < 0
             int teleportId = random.nextInt() | Integer.MIN_VALUE;
             data.setPlugin(false);
+            data.setOnGround(!data.isVehicle() && isOnGround(position));
             data.getTeleportData().setTeleportId(teleportId);
             data.getTeleportData().setTransaction(player.lastTransactionSent.get());
 
@@ -340,9 +358,7 @@ public class SetbackTeleportUtil extends GrimProcessor implements PostPrediction
             boolean closeEnoughX = Math.abs(clamped.getX() - x) <= 1e-7 + threshold;
             boolean closeEnoughY = Math.abs(clamped.getY() - y) <= 1e-7 + threshold; // 1.7 rounding
             boolean closeEnoughZ = Math.abs(clamped.getZ() - z) <= 1e-7 + threshold;
-            // rotations are updated every frame, we can't accurately check them if they're relative
-            boolean correctRotations = (yaw == teleportPos.getYaw() || teleportPos.isRelativeYaw())
-                    && (pitch == teleportPos.getPitch() || teleportPos.isRelativePitch());
+            boolean correctRotations = teleportPos.isValidRotation(player.getClientVersion(), yaw, pitch);
             boolean positionChangedFromCurrent = Math.abs(clamped.getX() - player.x) > 1e-7
                     || Math.abs(clamped.getY() - player.y) > 1e-7
                     || Math.abs(clamped.getZ() - player.z) > 1e-7;
