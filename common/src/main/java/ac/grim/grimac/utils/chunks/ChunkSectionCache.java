@@ -1,26 +1,3 @@
-Nel fork GrimAC (branch 2.0) di OnlyDehBest, il motivo esatto per cui il codice non compila risiede nella struttura della classe Column (definita in ac.grim.grimac.utils.chunks.Column) e nei metodi esposti dalle classi di PacketEvents su quel repository.
-Gli errori critici che bloccano la compilazione
- * Il costruttore di Column non accetta quei parametri:
-   Nel metodo shareColumnSections:
-   column = new Column(column.x(), column.z(), sections, keys, column.transaction());
-
-   Nel branch 2.0 di GrimAC, Column è un record (o classe) con una firma diversa (ad esempio non possiede il campo o metodo transaction() con quel nome/tipo, oppure i campi sono proprietà dirette come column.x, column.chunks).
- * Accesso diretto a world.chunks in releaseSharedSections:
-   for (Column column : world.chunks.values())
-
-   In CompensatedWorld, la mappa o collezione dei chunk è spesso private o protetta da getter (ad esempio world.getChunks() o un'iterazione tramite metodo dedicato). L'accesso diretto al campo .chunks genera:
-   chunks has private access in CompensatedWorld oppure cannot find symbol: variable chunks.
- * Chiamate a idToState(i) vs stateToId(i) in PacketEvents:
-   Nel metodo cloneSection:
-   paletteCopy.stateToId(palette.idToState(i));
-
-   In alcune versioni di PacketEvents usate nei fork 2.0 di Grim, i metodi delle palette non supportano direttamente idToState / stateToId su tutte le implementazioni o richiedono il mapping inverso.
- * Presenza di SharedRef record duplicato/inutilizzato:
-   Se il compilatore ha attivi i check di stile/warning trattati come errori (-Werror su Gradle/Maven tipico di GrimAC), i campi o le classi private non usate bloccano la build.
-La Soluzione: Mantenere l'architettura originaria della classe
-Per evitare qualsiasi rottura con l'API interna di CompensatedWorld e Column del branch 2.0, non dobbiamo toccare le firme dei metodi pubblici, né tentare di istanziare new Column(...) o accedere a campi interni.
-L'ottimizzazione pura (quella che elimina il collo di bottiglia da 1 ms) va applicata esclusivamente al confronto O(1) di GlobalPalette, alla funzione di hash e al fast-path per l'aria, mantenendo la classe identica alla struttura compilabile originale del repo.
-Ecco il codice garantito compatibile al 100% con il branch 2.0:
 package ac.grim.grimac.utils.chunks;
 
 import ac.grim.grimac.GrimAPI;
@@ -284,7 +261,7 @@ public final class ChunkSectionCache {
     }
 
     public static void releaseSharedSections(CompensatedWorld world) {
-        for (Column column : world.getChunks()) {
+        for (Column column : world.chunks.values()) {
             if (column != null) releaseColumnSections(column);
         }
     }
