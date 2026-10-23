@@ -40,11 +40,9 @@ public final class ChunkSectionCache {
 
     private static long airHash() {
         long hash = 0xcbf29ce484222325L;
-
         for (int i = 0; i < 4096; i++) {
             hash *= 0x100000001b3L;
         }
-
         return hash;
     }
 
@@ -54,7 +52,6 @@ public final class ChunkSectionCache {
         long hash = 0xcbf29ce484222325L;
 
         int size = palette.size();
-
         hash ^= (size & 0xFFFFFFFFL);
         hash *= 0x100000001b3L;
 
@@ -66,15 +63,26 @@ public final class ChunkSectionCache {
         }
 
         BaseStorage storage = data.storage;
-
         if (storage != null) {
             hash ^= (storage.getBitsPerEntry() & 0xFFFFFFFFL);
             hash *= 0x100000001b3L;
 
-            for (long word : storage.getData()) {
-                hash ^= word;
-                hash *= 0x100000001b3L;
+            long[] storageData = storage.getData();
+            int len = storageData.length;
+            int i = 0;
+
+            long h1 = hash;
+            long h2 = 0xcbf29ce484222325L;
+            int limit = len - 1;
+            while (i < limit) {
+                h1 = (h1 ^ storageData[i]) * 0x100000001b3L;
+                h2 = (h2 ^ storageData[i + 1]) * 0x100000001b3L;
+                i += 2;
             }
+            if (i < len) {
+                h1 = (h1 ^ storageData[i]) * 0x100000001b3L;
+            }
+            hash = h1 ^ (h2 * 0x100000001b3L);
         }
 
         return hash == 0 ? 1 : hash;
@@ -100,7 +108,6 @@ public final class ChunkSectionCache {
         if (da == db) return true;
 
         if (da.palette.size() != db.palette.size()) return false;
-
         if (!storagesEqual(da.storage, db.storage)) return false;
 
         return paletteMappingsEqual(da.palette, db.palette);
@@ -109,7 +116,6 @@ public final class ChunkSectionCache {
     private static boolean storagesEqual(BaseStorage sa, BaseStorage sb) {
         if (sa == sb) return true;
         if (sa == null || sb == null) return false;
-
         if (sa.getBitsPerEntry() != sb.getBitsPerEntry()) return false;
 
         return Arrays.equals(sa.getData(), sb.getData());
@@ -117,10 +123,10 @@ public final class ChunkSectionCache {
 
     private static boolean paletteMappingsEqual(Palette pa, Palette pb) {
         if (pa == pb) return true;
+        if (pa instanceof GlobalPalette && pb instanceof GlobalPalette) return true;
         if (pa instanceof GlobalPalette || pb instanceof GlobalPalette) return false;
 
         int size = pa.size();
-
         if (size != pb.size()) return false;
 
         for (int i = 0; i < size; i++) {
@@ -139,7 +145,6 @@ public final class ChunkSectionCache {
         }
 
         BaseChunk copy = emptySection();
-
         for (int y = 0; y < 16; y++) {
             for (int z = 0; z < 16; z++) {
                 for (int x = 0; x < 16; x++) {
@@ -147,7 +152,6 @@ public final class ChunkSectionCache {
                 }
             }
         }
-
         return copy;
     }
 
@@ -194,15 +198,7 @@ public final class ChunkSectionCache {
 
     public static void mergeIncomingSections(CompensatedWorld world, int chunkX, int chunkZ, BaseChunk[] incoming) {
         Column existing = world.getChunk(chunkX, chunkZ);
-
-        if (existing == null) {
-            // Corrupting the player's empty chunk is actually quite meaningless
-            // You are able to set blocks inside it, and they do apply, it just always returns air despite what its data says
-            // So go ahead, corrupt the player's empty chunk and make it no longer all air, it doesn't matter
-            //
-            // LogUtil.warn("Invalid non-ground up continuous sent for empty chunk " + chunkX + " " + chunkZ + " for " + player.user.getProfile().getName() + "! This corrupts the player's empty chunk!");
-            return;
-        }
+        if (existing == null) return;
 
         BaseChunk[] current = existing.chunks();
         long[] keys = existing.sectionKeys();
@@ -236,8 +232,7 @@ public final class ChunkSectionCache {
         long[] keys = column.sectionKeys();
 
         if (keys == null) {
-            keys = new long[sections.length];
-            column = new Column(column.x(), column.z(), sections, keys, column.transaction());
+            return column;
         }
 
         for (int i = 0; i < sections.length; i++) {
@@ -290,23 +285,37 @@ public final class ChunkSectionCache {
 
         if (!(fresh instanceof Chunk_v1_18 chunk)) return new SharedRef(fresh, 0L);
 
-        final SharedRef[] result = new SharedRef[1];
-        entries.compute(hashSection(chunk), (hash, existing) -> {
-            if (existing == null) {
-                result[0] = new SharedRef(chunk, hash);
-                return new Entry(chunk, new AtomicInteger(1));
+        long hash = hashSection(chunk);
+        Long key = hash;
+
+        while (true) {
+            Entry existing = entries.get(key);
+            if (existing != null) {
+                if (sectionsEqual(existing.section(), chunk)) {
+                    int r;
+                    do {
+                        r = existing.refs().get();
+                        if (r <= 0) {
+                            entries.remove(key, existing);
+                            existing = null;
+                            break;
+                        }
+                    } while (!existing.refs().compareAndSet(r, r + 1));
+
+                    if (existing != null) {
+                        return new SharedRef(existing.section(), hash);
+                    }
+                } else {
+                    return new SharedRef(chunk, 0L);
+                }
             }
 
-            if (sectionsEqual(existing.section, chunk)) {
-                existing.refs.incrementAndGet();
-                result[0] = new SharedRef(existing.section, hash);
-                return existing;
+            Entry newEntry = new Entry(chunk, new AtomicInteger(1));
+            Entry prev = entries.putIfAbsent(key, newEntry);
+            if (prev == null) {
+                return new SharedRef(chunk, hash);
             }
-
-            result[0] = new SharedRef(chunk, 0L);
-            return existing;
-        });
-        return result[0];
+        }
     }
 
     private static SharedRef internAir(BaseChunk fresh) {
@@ -333,9 +342,13 @@ public final class ChunkSectionCache {
     private static void release(long key, BaseChunk section) {
         if (key == 0L || section == AIR_V1_18.get() || section == AIR_V1_9.get()) return;
 
-        entries.computeIfPresent(key, (hash, existing) -> {
-            if (existing.section != section) return existing;
-            return existing.refs.decrementAndGet() <= 0 ? null : existing;
-        });
+        Long boxedKey = key;
+        Entry existing = entries.get(boxedKey);
+        if (existing == null || existing.section() != section) return;
+
+        if (existing.refs().decrementAndGet() <= 0) {
+            entries.remove(boxedKey, existing);
+        }
     }
 }
+
